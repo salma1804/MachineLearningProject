@@ -1,0 +1,15 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Data science
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
