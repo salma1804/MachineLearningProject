@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RetailMind — ML Intelligence Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+  --bg:       #03050a;
+  --bg1:      #080c14;
+  --bg2:      #0d1220;
+  --bg3:      #111827;
+  --cyan:     #00f5d4;
+  --blue:     #3b82f6;
+  --purple:   #8b5cf6;
+  --pink:     #ec4899;
+  --amber:    #f59e0b;
+  --green:    #10b981;
+  --red:      #ef4444;
+  --text:     #f0f4ff;
+  --muted:    #4b5563;
+  --border:   rgba(255,255,255,0.06);
+  --border2:  rgba(255,255,255,0.12);
+  --sans: 'Space Grotesk', sans-serif;
+  --mono: 'Space Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); overflow: hidden; }
+
+#bg-canvas { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+
+.app { position: relative; z-index: 1; display: grid; grid-template-rows: 56px 1fr; height: 100vh; }
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 1.5rem; border-bottom: 1px solid var(--border);
+  background: rgba(8,12,20,0.8); backdrop-filter: blur(20px);
+}
+
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 0.95rem; letter-spacing: 0.05em; }
+
+.brand-icon { position: relative; width: 28px; height: 28px; }
+.brand-ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--cyan); animation: brandSpin 4s linear infinite; }
+.brand-ring::after { content: ''; position: absolute; top: -3px; left: 50%; width: 5px; height: 5px; background: var(--cyan); border-radius: 50%; box-shadow: 0 0 8px var(--cyan); }
+@keyframes brandSpin { to { transform: rotate(360deg); } }
+.brand-core { position: absolute; inset: 6px; background: var(--cyan); border-radius: 50%; opacity: 0.2; }
+
+.topbar-center { display: flex; gap: 0.3rem; }
+.tab { padding: 5px 14px; border-radius: 6px; font-size: 0.72rem; font-family: var(--mono); color: var(--muted); cursor: pointer; transition: all 0.2s; border: 1px solid transparent; text-transform: uppercase; letter-spacing: 0.08em; }
+.tab.active, .tab:hover { color: var(--cyan); border-color: rgba(0,245,212,0.2); background: rgba(0,245,212,0.05); }
+
+.topbar-right { display: flex; align-items: center; gap: 1rem; }
+.status-pill { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 0.65rem; color: var(--green); border: 1px solid rgba(16,185,129,0.25); padding: 4px 10px; border-radius: 20px; background: rgba(16,185,129,0.06); }
+.status-dot { width: 5px; height: 5px; background: var(--green); border-radius: 50%; box-shadow: 0 0 6px var(--green); animation: blink 2s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.live-time { font-family: var(--mono); font-size: 0.65rem; color: var(--muted); }
+
+.main { display: grid; grid-template-columns: 340px 1fr; overflow: hidden; }
+
+.sidebar { border-right: 1px solid var(--border); overflow-y: auto; background: rgba(8,12,20,0.6); backdrop-filter: blur(10px); scrollbar-width: thin; scrollbar-color: var(--border2) transparent; }
+.sidebar::-webkit-scrollbar { width: 3px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.sidebar-inner { padding: 1.2rem; }
+
+.form-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.2rem; }
+.form-head-title { font-size: 0.6rem; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.15em; }
+.preset-btns { display: flex; gap: 4px; }
+.preset-btn { font-size: 0.58rem; font-family: var(--mono); padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border2); background: transparent; color: var(--muted); cursor: pointer; transition: all 0.15s; }
+.preset-btn:hover { color: var(--cyan); border-color: rgba(0,245,212,0.3); }
+
+.fsec { margin-bottom: 1rem; }
+.fsec-label { font-size: 0.55rem; font-family: var(--mono); color: var(--cyan); text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 0.5rem; opacity: 0.7; display: flex; align-items: center; gap: 6px; }
+.fsec-label::before { content: ''; width: 3px; height: 3px; background: var(--cyan); border-radius: 50%; }
+
+.fgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.fgrid.g3 { grid-template-columns: 1fr 1fr 1fr; }
+.fgrid.g1 { grid-template-columns: 1fr; }
+
+.fitem { display: flex; flex-direction: column; gap: 3px; }
+.fitem label { font-size: 0.55rem; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.fitem input, .fitem select { background: rgba(255,255,255,0.03); border: 1px solid var(--border); color: var(--text); font-family: var(--mono); font-size: 0.75rem; padding: 5px 8px; border-radius: 5px; outline: none; transition: border-color 0.2s, background 0.2s; -moz-appearance: textfield; width: 100%; }
+.fitem input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.fitem input:focus, .fitem select:focus { border-color: rgba(0,245,212,0.4); background: rgba(0,245,212,0.04); }
+.fitem select option { background: var(--bg2); }
+
+.sep { height: 1px; background: var(--border); margin: 0.8rem 0; }
+
+.btn-run { width: 100%; padding: 11px; background: transparent; border: 1px solid var(--cyan); color: var(--cyan); font-family: var(--sans); font-size: 0.8rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; border-radius: 8px; cursor: pointer; margin-top: 1rem; position: relative; overflow: hidden; transition: all 0.2s; }
+.btn-run::before { content: ''; position: absolute; inset: 0; background: var(--cyan); transform: translateX(-100%); transition: transform 0.3s ease; z-index: 0; opacity: 0.12; }
+.btn-run:hover::before { transform: translateX(0); }
+.btn-run:hover { box-shadow: 0 0 20px rgba(0,245,212,0.2); }
+.btn-run:active { transform: scale(0.98); }
+.btn-run .bt { position: relative; z-index: 1; }
+.btn-run.loading { opacity: 0.6; pointer-events: none; }
+.btn-run .bt-spin { display: none; align-items: center; justify-content: center; gap: 8px; }
+.btn-run.loading .bt-label { display: none; }
+.btn-run.loading .bt-spin { display: flex; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.sring { width: 14px; height: 14px; border: 2px solid rgba(0,245,212,0.3); border-top-color: var(--cyan); border-radius: 50%; animation: spin 0.6s linear infinite; }
+
+.err-box { display: none; margin-top: 0.6rem; padding: 8px 10px; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; font-family: var(--mono); font-size: 0.68rem; color: #fca5a5; }
+.err-box.on { display: block; }
+
+.dash { overflow-y: auto; padding: 1.2rem; scrollbar-width: thin; scrollbar-color: var(--border2) transparent; background: rgba(3,5,10,0.5); }
+.dash::-webkit-scrollbar { width: 3px; }
+.dash::-webkit-scrollbar-thumb { background: var(--border2); }
+
+.empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.2rem; color: var(--muted); }
+.empty-rings { position: relative; width: 120px; height: 120px; }
+.empty-ring { position: absolute; border-radius: 50%; border: 1px solid var(--border2); animation: emptyPulse 3s ease-in-out infinite; }
+.empty-ring:nth-child(1) { inset: 0; animation-delay: 0s; }
+.empty-ring:nth-child(2) { inset: 15px; animation-delay: 0.5s; }
+.empty-ring:nth-child(3) { inset: 30px; animation-delay: 1s; }
+.empty-ring:nth-child(4) { inset: 45px; border-color: rgba(0,245,212,0.3); animation-delay: 1.5s; }
+@keyframes emptyPulse { 0%,100%{opacity:0.3} 50%{opacity:1} }
+.empty-center { position: absolute; inset: 52px; background: rgba(0,245,212,0.1); border-radius: 50%; border: 1px solid rgba(0,245,212,0.4); }
+.empty h3 { font-size: 0.9rem; font-weight: 600; opacity: 0.4; }
+.empty p { font-size: 0.72rem; opacity: 0.2; text-align: center; max-width: 220px; }
+
+.rgrid { display: none; }
+.rgrid.on { display: grid; }
+
+.hero-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1rem; }
+
+.circ-card { background: var(--bg1); border: 1px solid var(--border); border-radius: 16px; padding: 1.4rem; display: flex; flex-direction: column; align-items: center; gap: 0.8rem; position: relative; overflow: hidden; transition: border-color 0.3s; }
+.circ-card::after { content: ''; position: absolute; inset: 0; border-radius: 16px; background: radial-gradient(ellipse at 50% 0%, var(--card-glow, rgba(0,245,212,0.06)) 0%, transparent 70%); pointer-events: none; }
+.circ-card.churn  { --card-glow: rgba(239,68,68,0.08); }
+.circ-card.safe   { --card-glow: rgba(16,185,129,0.08); }
+.circ-card.spend  { --card-glow: rgba(245,158,11,0.08); }
+.circ-card.seg    { --card-glow: rgba(139,92,246,0.08); }
+
+.circ-label { font-size: 0.55rem; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.15em; text-align: center; }
+
+.ring-wrap { position: relative; width: 130px; height: 130px; }
+.ring-wrap svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.ring-bg { fill: none; stroke: rgba(255,255,255,0.05); }
+.ring-track { fill: none; stroke-linecap: round; transition: stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1); }
+.ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.ring-val { font-size: 1.5rem; font-weight: 700; line-height: 1; }
+.ring-unit { font-size: 0.6rem; font-family: var(--mono); color: var(--muted); }
+.circ-verdict { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.05em; text-align: center; }
+.circ-sub { font-size: 0.62rem; color: var(--muted); font-family: var(--mono); text-align: center; }
+
+.charts-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+.chart-card { background: var(--bg1); border: 1px solid var(--border); border-radius: 16px; padding: 1.1rem; }
+.chart-card.wide { grid-column: span 2; }
+.cc-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.8rem; }
+.cc-title { font-size: 0.58rem; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; }
+.cc-badge { font-size: 0.55rem; font-family: var(--mono); padding: 2px 8px; border-radius: 10px; border: 1px solid; }
+.cc-badge.cyan  { color: var(--cyan);   border-color: rgba(0,245,212,0.3);  background: rgba(0,245,212,0.06); }
+.cc-badge.purple{ color: var(--purple); border-color: rgba(139,92,246,0.3); background: rgba(139,92,246,0.06); }
+.cc-badge.amber { color: var(--amber);  border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.06); }
+.cc-wrap { position: relative; height: 170px; }
+.cc-wrap.sm { height: 140px; }
+
+.intel-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+.metric-card { background: var(--bg1); border: 1px solid var(--border); border-radius: 16px; padding: 1.1rem; }
+.metric-list { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.6rem; }
+.metric-row { display: flex; flex-direction: column; gap: 4px; }
+.metric-top { display: flex; align-items: center; justify-content: space-between; }
+.metric-name { font-size: 0.65rem; font-family: var(--mono); color: var(--text); opacity: 0.7; }
+.metric-num { font-size: 0.65rem; font-family: var(--mono); color: var(--muted); }
+.bar-track { height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 2px; transition: width 1s cubic-bezier(0.4,0,0.2,1); width: 0%; }
+
+.risk-card { background: var(--bg1); border: 1px solid var(--border); border-radius: 16px; padding: 1.1rem; display: flex; flex-direction: column; gap: 0.7rem; }
+.risk-meter { position: relative; height: 10px; background: linear-gradient(to right, rgba(16,185,129,0.8) 0%, rgba(245,158,11,0.8) 45%, rgba(239,68,68,0.8) 85%, rgba(139,0,0,0.9) 100%); border-radius: 5px; margin: 0.4rem 0; }
+.risk-needle { position: absolute; top: -5px; width: 3px; height: 20px; background: white; border-radius: 2px; transform: translateX(-50%); transition: left 1s cubic-bezier(0.4,0,0.2,1); box-shadow: 0 0 6px rgba(255,255,255,0.6); left: 0%; }
+.risk-labels { display: flex; justify-content: space-between; font-size: 0.52rem; font-family: var(--mono); color: var(--muted); }
+.risk-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 0.3rem; }
+.rtag { font-size: 0.58rem; font-family: var(--mono); padding: 3px 9px; border-radius: 12px; border: 1px solid; }
+.rtag.ok   { color: var(--green); border-color: rgba(16,185,129,0.3);  background: rgba(16,185,129,0.06); }
+.rtag.warn { color: var(--amber); border-color: rgba(245,158,11,0.3);  background: rgba(245,158,11,0.06); }
+.rtag.bad  { color: var(--red);   border-color: rgba(239,68,68,0.3);   background: rgba(239,68,68,0.06); }
+
+.score-line { display: flex; align-items: baseline; gap: 8px; }
+.score-big { font-size: 2.2rem; font-weight: 700; line-height: 1; }
+.score-max { font-size: 0.8rem; color: var(--muted); font-family: var(--mono); }
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon">
+        <div class="brand-ring"></div>
+        <div class="brand-core"></div>
+      </div>
+      RetailMind
+    </div>
+    <div class="topbar-center">
+      <div class="tab active">Intelligence</div>
+      <div class="tab">Pipeline</div>
+      <div class="tab">Segments</div>
+    </div>
+    <div class="topbar-right">
+      <div class="status-pill"><div class="status-dot"></div>Modèles chargés</div>
+      <div class="live-time" id="live-time">--:--:--</div>
+    </div>
+  </header>
+
+  <div class="main">
+
+    <!-- ══ SIDEBAR ══ -->
+    <aside class="sidebar">
+      <div class="sidebar-inner">
+
+        <div class="form-head">
+          <span class="form-head-title">Profil client</span>
+          <div class="preset-btns">
+            <button class="preset-btn" onclick="loadPreset('vip')">VIP</button>
+            <button class="preset-btn" onclick="loadPreset('risk')">At risk</button>
+            <button class="preset-btn" onclick="loadPreset('new')">Nouveau</button>
+          </div>
+        </div>
+
+        <form id="pform" onsubmit="runPredict(event)">
+
+          <!-- RFM -->
+          <div class="fsec">
+            <div class="fsec-label">RFM Core</div>
+            <div class="fgrid">
+              <div class="fitem"><label>Recency (j)</label><input type="number" name="Recency" value="30" min="0" max="400"></div>
+              <div class="fitem"><label>Frequency</label><input type="number" name="Frequency" value="8" min="1" max="50"></div>
+              <div class="fitem"><label>Monetary (£)</label><input type="number" name="MonetaryTotal" value="850" step="0.01"></div>
+              <div class="fitem"><label>Monetary std</label><input type="number" name="MonetaryStd" value="120" step="0.01"></div>
+              <div class="fitem"><label>Monetary min</label><input type="number" name="MonetaryMin" value="20" step="0.01"></div>
+              <div class="fitem"><label>Monetary max</label><input type="number" name="MonetaryMax" value="400" step="0.01"></div>
+            </div>
+          </div>
+
+          <div class="sep"></div>
+
+          <!-- TRANSACTIONS -->
+          <div class="fsec">
+            <div class="fsec-label">Transactions</div>
+            <div class="fgrid">
+              <div class="fitem"><label>Total qté</label><input type="number" name="TotalQuantity" value="200"></div>
+              <div class="fitem"><label>Qté moy/trans</label><input type="number" name="AvgQuantityPerTransaction" value="25" step="0.1"></div>
+              <div class="fitem"><label>Qté max</label><input type="number" name="MaxQuantity" value="80"></div>
+              <div class="fitem"><label>Ancienneté (j)</label><input type="number" name="CustomerTenureDays" value="400"></div>
+              <div class="fitem"><label>1er achat (j)</label><input type="number" name="FirstPurchaseDaysAgo" value="400"></div>
+              <div class="fitem"><label>Total trans.</label><input type="number" name="TotalTransactions" value="20"></div>
+              <div class="fitem"><label>Lignes/facture</label><input type="number" name="AvgLinesPerInvoice" value="4" step="0.1"></div>
+              <div class="fitem"><label>Produits uniq.</label><input type="number" name="UniqueProducts" value="15"></div>
+              <div class="fitem"><label>Pays uniq.</label><input type="number" name="UniqueCountries" value="1" min="1" max="5"></div>
+              <div class="fitem"><label>Annulations</label><input type="number" name="CancelledTransactions" value="1" min="0"></div>
+              <div class="fitem"><label>Taux retour</label><input type="number" name="ReturnRatio" value="0.05" min="0" max="1" step="0.01"></div>
+              <div class="fitem"><label>Prix zéro</label><input type="number" name="ZeroPriceCount" value="0" min="0"></div>
+            </div>
+          </div>
+
+          <div class="sep"></div>
+
+          <!-- TEMPOREL -->
+          <div class="fsec">
+            <div class="fsec-label">Temporel</div>
+            <div class="fgrid g3">
+              <div class="fitem"><label>Jour (0-6)</label><input type="number" name="PreferredDayOfWeek" value="2" min="0" max="6"></div>
+              <div class="fitem"><label>Heure (0-23)</label><input type="number" name="PreferredHour" value="14" min="0" max="23"></div>
+              <div class="fitem"><label>Mois (1-12)</label><input type="number" name="PreferredMonth" value="11" min="1" max="12"></div>
+              <div class="fitem"><label>Ratio WE</label><input type="number" name="WeekendPurchaseRatio" value="0.3" min="0" max="1" step="0.01"></div>
+              <div class="fitem"><label>Jours entre</label><input type="number" name="AvgDaysBetweenPurchases" value="25"></div>
+            </div>
+          </div>
+
+          <div class="sep"></div>
+
+          <!-- PROFIL -->
+          <div class="fsec">
+            <div class="fsec-label">Profil</div>
+            <div class="fgrid">
+              <div class="fitem"><label>Âge</label><input type="number" name="Age" value="34" min="18" max="81"></div>
+              <div class="fitem"><label>Support tickets</label><input type="number" name="SupportTicketsCount" value="1" min="0" max="15"></div>
+              <div class="fitem"><label>Satisfaction (1-5)</label><input type="number" name="SatisfactionScore" value="4" min="1" max="5"></div>
+            </div>
+          </div>
+
+          <div class="sep"></div>
+
+          <!-- INSCRIPTION -->
+          <div class="fsec">
+            <div class="fsec-label">Inscription</div>
+            <div class="fgrid g3">
+              <div class="fitem"><label>Année</label><input type="number" name="RegYear" value="2021" min="2009" max="2025"></div>
+              <div class="fitem"><label>Mois</label><input type="number" name="RegMonth" value="3" min="1" max="12"></div>
+              <div class="fitem"><label>Jour</label><input type="number" name="RegDay" value="15" min="1" max="31"></div>
+            </div>
+          </div>
+
+          <div class="sep"></div>
+
+          <!-- CATÉGORIES ORDINALES -->
+          <div class="fsec">
+            <div class="fsec-label">Catégories ordinales</div>
+            <div class="fgrid">
+              <div class="fitem">
+                <label>Spending</label>
+                <select name="SpendingCategory">
+                  <option value="0">Low</option><option value="1" selected>Medium</option><option value="2">High</option><option value="3">VIP</option>
+                </select>
+              </div>
+              <div class="fitem">
+                <label>Loyalty</label>
+                <select name="LoyaltyLevel">
+                  <option value="0">Nouveau</option><option value="1" selected>Jeune</option><option value="2">Établi</option><option value="3">Ancien</option>
+                </select>
+              </div>
+              <div class="fitem">
+                <label>Churn risk</label>
+                <select name="ChurnRiskCategory">
+                  <option value="0">Faible</option><option value="1" selected>Moyen</option><option value="2">Élevé</option><option value="3">Critique</option>
+                </select>
+              </div>
+              <div class="fitem">
+                <label>Age cat.</label>
+                <select name="AgeCategory">
+                  <option value="0">Inconnu</option><option value="1">18-24</option><option value="2" selected>25-34</option><option value="3">35-44</option><option value="4">45-54</option><option value="5">55-64</option><option value="6">65+</option>
+                </select>
+              </div>
+              <div class="fitem">
+                <label>Basket size</label>
+                <select name="BasketSizeCategory">
+                  <option value="0">Petit</option><option value="1" selected>Moyen</option><option value="2">Grand</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="sep"></div>
+
+          <!-- ══ SECTION MANQUANTE — ONE-HOT FEATURES ══ -->
+          <div class="fsec">
+            <div class="fsec-label">Segment &amp; comportement</div>
+            <div class="fgrid">
+              <div class="fitem">
+                <label>RFM Segment</label>
+                <select name="RFMSegment">
+                  <option value="">Champions (ref)</option>
+                  <option value="Fidèles">Fidèles</option>
+                  <option value="Potentiels">Potentiels</option>
+                  <option value="Dormants">Dormants</option>
+                </select>
+              </div>
+              <div class="fitem">
+                <label>Type client</label>
+                <select name="CustomerType">
+                  <option value="">Hyperactif (ref)</option>
+                  <option value="Régulier">Régulier</option>
+                  <option value="Occasionnel">Occasionnel</option>
+                  <option value="Nouveau">Nouveau</option>
+                  <option value="Perdu">Perdu</option>
+                </select>
+              </div>
+              <div class="fitem">
+                <label>Saison favorite</label>
+                <select name="FavoriteSeason">
+                  <option value="">Automne (ref)</option>
+                  <option value="Hiver">Hiver</option>
+                  <option value="Printemps">Printemps</option>
+                  <option value="Été">Été</option>
+                </select>
+              </div>
+              <div class="fitem">
+                <label>Moment journée</label>
+                <select name="PreferredTimeOfDay">
+                  <option value="">Après-midi (ref)</option>
+                  <option value="Matin">Matin</option>
+                  <option value="Midi">Midi</option>
+                  <option value="Soir">Soir</option>
+                </select>
+              </div>
+              <div class="fitem">
+                <label>Préf. weekend</label>
+                <select name="WeekendPreference">
+                  <option value="">Inconnu (ref)</option>
+                  <option value="Semaine">Semaine</option>
+                  <option value="Weekend">Weekend</option>
+                </select>
+              </div>
+              <div class="fitem">
+                <label>Diversité produits</label>
+                <select name="ProductDiversity">
+                  <option value="">Explorateur (ref)</option>
+                  <option value="Modéré">Modéré</option>
+                  <option value="Spécialisé">Spécialisé</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="sep"></div>
+
+          <!-- DÉMOGRAPHIE -->
+          <div class="fsec">
+            <div class="fsec-label">Démographie &amp; compte</div>
+            <div class="fgrid">
+              <div class="fitem">
+                <label>Genre</label>
+                <select name="Gender">
+                  <option value="">F (ref)</option>
+                  <option value="M">M</option>
+                  <option value="Unknown">Unknown</option>
+                </select>
+              </div>
+              <div class="fitem">
+                <label>Statut compte</label>
+                <select name="AccountStatus">
+                  <option value="">Active (ref)</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Suspended">Suspended</option>
+                  <option value="Closed">Closed</option>
+                </select>
+              </div>
+              <div class="fitem">
+                <label>Région</label>
+                <select name="Region">
+                  <option value="">Autre (ref)</option>
+                  <option value="UK">UK</option>
+                  <option value="Europe continentale">Europe continentale</option>
+                  <option value="Europe du Nord">Europe du Nord</option>
+                  <option value="Europe du Sud">Europe du Sud</option>
+                  <option value="Europe centrale">Europe centrale</option>
+                  <option value="Europe de l'Est">Europe de l'Est</option>
+                  <option value="Amérique du Nord">Amérique du Nord</option>
+                  <option value="Amérique du Sud">Amérique du Sud</option>
+                  <option value="Asie">Asie</option>
+                  <option value="Moyen-Orient">Moyen-Orient</option>
+                  <option value="Océanie">Océanie</option>
+                </select>
+              </div>
+              <div class="fitem">
+                <label>Pays</label>
+                <select name="Country">
+                  <option value="">Autre (ref)</option>
+                  <option value="United Kingdom">United Kingdom</option>
+                  <option value="France">France</option>
+                  <option value="Germany">Germany</option>
+                  <option value="Spain">Spain</option>
+                  <option value="Belgium">Belgium</option>
+                  <option value="Netherlands">Netherlands</option>
+                  <option value="Italy">Italy</option>
+                  <option value="Portugal">Portugal</option>
+                  <option value="Sweden">Sweden</option>
+                  <option value="Norway">Norway</option>
+                  <option value="Denmark">Denmark</option>
+                  <option value="Finland">Finland</option>
+                  <option value="Switzerland">Switzerland</option>
+                  <option value="Austria">Austria</option>
+                  <option value="Poland">Poland</option>
+                  <option value="Czech Republic">Czech Republic</option>
+                  <option value="Greece">Greece</option>
+                  <option value="Cyprus">Cyprus</option>
+                  <option value="Malta">Malta</option>
+                  <option value="EIRE">EIRE</option>
+                  <option value="Channel Islands">Channel Islands</option>
+                  <option value="USA">USA</option>
+                  <option value="Canada">Canada</option>
+                  <option value="Brazil">Brazil</option>
+                  <option value="Japan">Japan</option>
+                  <option value="Singapore">Singapore</option>
+                  <option value="Israel">Israel</option>
+                  <option value="Lebanon">Lebanon</option>
+                  <option value="Saudi Arabia">Saudi Arabia</option>
+                  <option value="United Arab Emirates">United Arab Emirates</option>
+                  <option value="Bahrain">Bahrain</option>
+                  <option value="RSA">RSA</option>
+                  <option value="Iceland">Iceland</option>
+                  <option value="Lithuania">Lithuania</option>
+                  <option value="European Community">European Community</option>
+                  <option value="Unspecified">Unspecified</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <button type="submit" class="btn-run" id="run-btn">
+            <span class="bt bt-label">Lancer l'analyse</span>
+            <span class="bt bt-spin"><div class="sring"></div> Analyse en cours…</span>
+          </button>
+          <div class="err-box" id="err-box"></div>
+
+        </form>
+      </div>
+    </aside>
+
+    <!-- ══ DASHBOARD ══ -->
+    <div class="dash" id="dash">
+
+      <div class="empty" id="empty">
+        <div class="empty-rings">
+          <div class="empty-ring"></div>
+          <div class="empty-ring"></div>
+          <div class="empty-ring"></div>
+          <div class="empty-ring"></div>
+          <div class="empty-center"></div>
+        </div>
+        <h3>Intelligence en attente</h3>
+        <p>Configurez un profil client et lancez l'analyse pour visualiser les prédictions.</p>
+      </div>
+
+      <div class="rgrid" id="rgrid">
+
+        <div class="hero-row">
+          <div class="circ-card churn" id="c-churn">
+            <div class="circ-label">Risque de churn</div>
+            <div class="ring-wrap">
+              <svg viewBox="0 0 130 130"><circle class="ring-bg" cx="65" cy="65" r="56" stroke-width="8"/><circle class="ring-track" id="rt-churn" cx="65" cy="65" r="56" stroke-width="8" stroke="var(--red)" stroke-dasharray="351.86" stroke-dashoffset="351.86"/></svg>
+              <div class="ring-center">
+                <span class="ring-val" id="rv-churn" style="color:var(--red)">0%</span>
+                <span class="ring-unit">probabilité</span>
+              </div>
+            </div>
+            <div class="circ-verdict" id="cv-churn">—</div>
+            <div class="circ-sub" id="cs-churn">—</div>
+          </div>
+
+          <div class="circ-card spend">
+            <div class="circ-label">Dépense prédite</div>
+            <div class="ring-wrap">
+              <svg viewBox="0 0 130 130"><circle class="ring-bg" cx="65" cy="65" r="56" stroke-width="8"/><circle class="ring-track" id="rt-spend" cx="65" cy="65" r="56" stroke-width="8" stroke="var(--amber)" stroke-dasharray="351.86" stroke-dashoffset="351.86"/></svg>
+              <div class="ring-center">
+                <span class="ring-val" id="rv-spend" style="color:var(--amber); font-size:1.1rem">£0</span>
+                <span class="ring-unit">MonetaryTotal</span>
+              </div>
+            </div>
+            <div class="circ-verdict" id="cv-spend" style="color:var(--amber)">—</div>
+            <div class="circ-sub" id="cs-spend">—</div>
+          </div>
+
+          <div class="circ-card seg">
+            <div class="circ-label">Segment client</div>
+            <div class="ring-wrap">
+              <svg viewBox="0 0 130 130"><circle class="ring-bg" cx="65" cy="65" r="56" stroke-width="8"/><circle class="ring-track" id="rt-seg" cx="65" cy="65" r="56" stroke-width="8" stroke="var(--purple)" stroke-dasharray="351.86" stroke-dashoffset="176"/></svg>
+              <div class="ring-center">
+                <span class="ring-val" id="rv-seg" style="color:var(--purple)">#0</span>
+                <span class="ring-unit">cluster</span>
+              </div>
+            </div>
+            <div class="circ-verdict" id="cv-seg" style="color:var(--purple)">—</div>
+            <div class="circ-sub" id="cs-seg">—</div>
+          </div>
+        </div>
+
+        <div class="charts-row">
+          <div class="chart-card wide">
+            <div class="cc-head">
+              <span class="cc-title">Empreinte comportementale — radar RFM</span>
+              <span class="cc-badge cyan">vs dataset moyen</span>
+            </div>
+            <div class="cc-wrap"><canvas id="ch-radar"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <div class="cc-head">
+              <span class="cc-title">Score d'engagement</span>
+              <span class="cc-badge purple">0 – 100</span>
+            </div>
+            <div class="cc-wrap sm" style="display:flex;align-items:center;justify-content:center;">
+              <canvas id="ch-engage" style="max-width:140px;max-height:140px;"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="intel-row">
+          <div class="metric-card">
+            <div class="cc-head">
+              <span class="cc-title">Indicateurs détaillés</span>
+              <span class="cc-badge amber">normalised 0–100</span>
+            </div>
+            <div class="metric-list" id="metric-list"></div>
+          </div>
+          <div class="risk-card">
+            <div class="cc-head"><span class="cc-title">Score de rétention</span></div>
+            <div class="score-line">
+              <span class="score-big" id="ret-score" style="color:var(--green)">—</span>
+              <span class="score-max">/ 100</span>
+            </div>
+            <div class="risk-meter"><div class="risk-needle" id="risk-needle"></div></div>
+            <div class="risk-labels"><span>Sûr</span><span>Attention</span><span>Risqué</span><span>Critique</span></div>
+            <div class="risk-tags" id="risk-tags"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── CLOCK ──
+function tick() { document.getElementById('live-time').textContent = new Date().toLocaleTimeString('fr-FR'); }
+tick(); setInterval(tick, 1000);
+
+// ── PARTICLES ──
+const canvas = document.getElementById('bg-canvas');
+const ctx = canvas.getContext('2d');
+let W, H, pts = [];
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+function mkPts() { pts = Array.from({length:55}, () => ({ x:Math.random()*W, y:Math.random()*H, vx:(Math.random()-.5)*.3, vy:(Math.random()-.5)*.3, r:Math.random()*1.5+.4 })); }
+function drawBg() {
+  ctx.clearRect(0,0,W,H); ctx.fillStyle='#03050a'; ctx.fillRect(0,0,W,H);
+  for (let i=0;i<pts.length;i++) {
+    const a=pts[i]; a.x+=a.vx; a.y+=a.vy;
+    if(a.x<0||a.x>W) a.vx*=-1; if(a.y<0||a.y>H) a.vy*=-1;
+    ctx.beginPath(); ctx.arc(a.x,a.y,a.r,0,Math.PI*2); ctx.fillStyle='rgba(0,245,212,0.35)'; ctx.fill();
+    for(let j=i+1;j<pts.length;j++) {
+      const b=pts[j], dx=a.x-b.x, dy=a.y-b.y, d=Math.sqrt(dx*dx+dy*dy);
+      if(d<110) { ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.strokeStyle=`rgba(0,245,212,${.06*(1-d/110)})`; ctx.lineWidth=.5; ctx.stroke(); }
+    }
+  }
+  requestAnimationFrame(drawBg);
+}
+resize(); mkPts(); drawBg();
+window.addEventListener('resize', ()=>{ resize(); mkPts(); });
+
+// ── PRESETS ──
+const PRESETS = {
+  vip: {
+    Recency:5,Frequency:35,MonetaryTotal:4200,MonetaryStd:600,MonetaryMin:80,MonetaryMax:1200,
+    TotalQuantity:900,AvgQuantityPerTransaction:26,MaxQuantity:200,CustomerTenureDays:700,
+    FirstPurchaseDaysAgo:700,TotalTransactions:80,AvgLinesPerInvoice:8,UniqueProducts:60,
+    UniqueCountries:3,CancelledTransactions:0,ReturnRatio:0.01,ZeroPriceCount:0,
+    PreferredDayOfWeek:1,PreferredHour:11,PreferredMonth:12,WeekendPurchaseRatio:0.2,
+    AvgDaysBetweenPurchases:7,Age:42,SupportTicketsCount:0,SatisfactionScore:5,
+    RegYear:2018,RegMonth:1,RegDay:10,SpendingCategory:3,LoyaltyLevel:3,
+    ChurnRiskCategory:0,AgeCategory:3,BasketSizeCategory:2,
+    RFMSegment:'Fidèles',CustomerType:'Régulier',FavoriteSeason:'Hiver',
+    PreferredTimeOfDay:'Soir',WeekendPreference:'Semaine',ProductDiversity:'Modéré',
+    Gender:'M',AccountStatus:'',Region:'UK',Country:'United Kingdom'
+  },
+  risk: {
+    Recency:280,Frequency:2,MonetaryTotal:95,MonetaryStd:30,MonetaryMin:10,MonetaryMax:60,
+    TotalQuantity:20,AvgQuantityPerTransaction:10,MaxQuantity:15,CustomerTenureDays:500,
+    FirstPurchaseDaysAgo:500,TotalTransactions:4,AvgLinesPerInvoice:2,UniqueProducts:4,
+    UniqueCountries:1,CancelledTransactions:3,ReturnRatio:0.4,ZeroPriceCount:2,
+    PreferredDayOfWeek:6,PreferredHour:22,PreferredMonth:2,WeekendPurchaseRatio:0.8,
+    AvgDaysBetweenPurchases:140,Age:67,SupportTicketsCount:8,SatisfactionScore:1,
+    RegYear:2022,RegMonth:11,RegDay:5,SpendingCategory:0,LoyaltyLevel:0,
+    ChurnRiskCategory:3,AgeCategory:6,BasketSizeCategory:0,
+    RFMSegment:'Dormants',CustomerType:'Perdu',FavoriteSeason:'',
+    PreferredTimeOfDay:'',WeekendPreference:'Weekend',ProductDiversity:'Spécialisé',
+    Gender:'',AccountStatus:'Suspended',Region:'Europe du Nord',Country:'Germany'
+  },
+  new: {
+    Recency:10,Frequency:1,MonetaryTotal:45,MonetaryStd:0,MonetaryMin:45,MonetaryMax:45,
+    TotalQuantity:5,AvgQuantityPerTransaction:5,MaxQuantity:5,CustomerTenureDays:12,
+    FirstPurchaseDaysAgo:12,TotalTransactions:1,AvgLinesPerInvoice:1,UniqueProducts:2,
+    UniqueCountries:1,CancelledTransactions:0,ReturnRatio:0,ZeroPriceCount:0,
+    PreferredDayOfWeek:3,PreferredHour:16,PreferredMonth:6,WeekendPurchaseRatio:0.5,
+    AvgDaysBetweenPurchases:12,Age:24,SupportTicketsCount:0,SatisfactionScore:3,
+    RegYear:2025,RegMonth:1,RegDay:2,SpendingCategory:0,LoyaltyLevel:0,
+    ChurnRiskCategory:1,AgeCategory:1,BasketSizeCategory:0,
+    RFMSegment:'Potentiels',CustomerType:'Nouveau',FavoriteSeason:'Été',
+    PreferredTimeOfDay:'Après-midi',WeekendPreference:'',ProductDiversity:'',
+    Gender:'',AccountStatus:'',Region:'Europe continentale',Country:'France'
+  }
+};
+
+function loadPreset(key) {
+  const p = PRESETS[key];
+  const form = document.getElementById('pform');
+  Object.entries(p).forEach(([k, v]) => {
+    const el = form.elements[k];
+    if (el) el.value = v;
+  });
+}
+
+// ── CHART INSTANCES ──
+let radarChart = null, engageChart = null;
+
+// ── RING ANIMATION ──
+function setRing(id, pct) {
+  const circ = 351.86;
+  const el = document.getElementById(id);
+  if (el) el.style.strokeDashoffset = circ - (circ * Math.min(pct, 1));
+}
+
+// ── SUBMIT ──
+// IMPORTANT: numeric fields parsed as float, select/string fields sent as strings
+async function runPredict(e) {
+  e.preventDefault();
+  const btn = document.getElementById('run-btn');
+  const err = document.getElementById('err-box');
+  btn.classList.add('loading');
+  err.classList.remove('on');
+
+  const form = document.getElementById('pform');
+  const data = {};
+
+  // String fields (one-hot categoricals) — must NOT be parsed as float
+  const STRING_FIELDS = new Set([
+    'RFMSegment','CustomerType','FavoriteSeason','PreferredTimeOfDay',
+    'Region','WeekendPreference','ProductDiversity','Gender','AccountStatus','Country'
+  ]);
+
+  // Collect all form values
+  const fd = new FormData(form);
+  fd.forEach((v, k) => {
+    if (STRING_FIELDS.has(k)) {
+      data[k] = v;                    // keep as string
+    } else {
+      data[k] = v === '' ? 0 : parseFloat(v);  // numeric
+    }
+  });
+
+  try {
+    const res = await fetch('/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const r = await res.json();
+    if (!r.success) throw new Error(r.error || 'Erreur inconnue');
+    render(r, data);
+  } catch(ex) {
+    err.textContent = 'Erreur: ' + ex.message;
+    err.classList.add('on');
+  } finally {
+    btn.classList.remove('loading');
+  }
+}
+
+// ── RENDER ──
+const CLUSTER_INFO = {
+  0: { name:'Churners',   sub:'Haute probabilité de départ',  col:'var(--red)'    },
+  1: { name:'Fidèles',    sub:'Clients actifs réguliers',     col:'var(--green)'  },
+  2: { name:'À risque',   sub:'Activité en déclin',           col:'var(--amber)'  },
+  3: { name:'Dormants',   sub:'Inactifs depuis longtemps',    col:'var(--muted)'  },
+  4: { name:'Champions',  sub:'Meilleurs clients',            col:'var(--cyan)'   },
+};
+
+function render(r, d) {
+  document.getElementById('empty').style.display = 'none';
+  document.getElementById('rgrid').classList.add('on');
+
+  const prob    = r.churn_probability;
+  const isChurn = r.churn_prediction === 1;
+  const pct     = Math.round(prob * 100);
+  const clInfo  = CLUSTER_INFO[r.cluster] || { name:`Cluster ${r.cluster}`, sub:'', col:'var(--purple)' };
+
+  // Churn ring
+  setRing('rt-churn', prob);
+  const churnCol = prob >= 0.6 ? 'var(--red)' : prob >= 0.35 ? 'var(--amber)' : 'var(--green)';
+  document.getElementById('rt-churn').style.stroke = churnCol;
+  document.getElementById('rv-churn').textContent  = pct + '%';
+  document.getElementById('rv-churn').style.color  = churnCol;
+  document.getElementById('cv-churn').textContent  = r.churn_label;
+  document.getElementById('cv-churn').style.color  = churnCol;
+  document.getElementById('cs-churn').textContent  = isChurn ? 'Action requise' : 'Client stable';
+  document.getElementById('c-churn').className     = 'circ-card ' + (isChurn ? 'churn' : 'safe');
+
+  // Spending ring
+  const spendPct = Math.min(r.predicted_spending / 5000, 1);
+  setRing('rt-spend', spendPct);
+  document.getElementById('rv-spend').textContent = '£' + r.predicted_spending.toLocaleString('fr-FR',{minimumFractionDigits:0,maximumFractionDigits:0});
+  const tier = r.predicted_spending>2000?'VIP':r.predicted_spending>800?'Premium':r.predicted_spending>200?'Standard':'Entrée';
+  document.getElementById('cv-spend').textContent = tier;
+  document.getElementById('cs-spend').textContent = 'Estimé sur prochaine période';
+
+  // Cluster ring
+  setRing('rt-seg', (r.cluster + 1) / 5);
+  document.getElementById('rt-seg').style.stroke = clInfo.col;
+  document.getElementById('rv-seg').textContent  = '#' + r.cluster;
+  document.getElementById('rv-seg').style.color  = clInfo.col;
+  document.getElementById('cv-seg').textContent  = clInfo.name;
+  document.getElementById('cv-seg').style.color  = clInfo.col;
+  document.getElementById('cs-seg').textContent  = clInfo.sub;
+
+  renderRadar(d);
+
+  const engScore = Math.min(100, Math.round(
+    (d.Frequency/50*30) + (d.SatisfactionScore/5*30) + ((1-prob)*25) + ((1-Math.min(d.ReturnRatio,1))*15)
+  ));
+  renderEngage(engScore);
+  renderMetrics(d, r);
+
+  const retScore = Math.round((1 - prob) * 100);
+  document.getElementById('ret-score').textContent = retScore;
+  document.getElementById('ret-score').style.color = retScore>65?'var(--green)':retScore>35?'var(--amber)':'var(--red)';
+  document.getElementById('risk-needle').style.left = (100 - retScore) + '%';
+
+  const tags = [];
+  if (d.Recency < 30)              tags.push({txt:'Actif récemment',      cls:'ok'});
+  if (d.Recency > 150)             tags.push({txt:'Inactif longtemps',    cls:'bad'});
+  if (d.SatisfactionScore >= 4)    tags.push({txt:'Satisfait',            cls:'ok'});
+  if (d.SatisfactionScore <= 2)    tags.push({txt:'Insatisfait',          cls:'bad'});
+  if (d.CancelledTransactions > 3) tags.push({txt:'Annulations élevées',  cls:'bad'});
+  if (d.ReturnRatio > 0.2)         tags.push({txt:'Taux retour élevé',    cls:'warn'});
+  if (d.Frequency > 10)            tags.push({txt:'Acheteur fréquent',    cls:'ok'});
+  if (d.SupportTicketsCount > 4)   tags.push({txt:'Support intensif',     cls:'warn'});
+  if (d.MonetaryTotal > 1000)      tags.push({txt:'Haut montant',         cls:'ok'});
+  document.getElementById('risk-tags').innerHTML = tags.map(t=>`<span class="rtag ${t.cls}">${t.txt}</span>`).join('');
+}
+
+function renderRadar(d) {
+  if (radarChart) radarChart.destroy();
+  const n = (v,mn,mx) => Math.min(100,Math.max(0,Math.round((v-mn)/(mx-mn)*100)));
+  const vals = [
+    n(400-d.Recency,0,400), n(d.Frequency,1,50), n(d.MonetaryTotal,0,5000),
+    n(d.SatisfactionScore,1,5), n(d.CustomerTenureDays,0,730),
+    n(1-d.ReturnRatio,0,1), n(d.UniqueProducts,1,100),
+    n(50-d.AvgDaysBetweenPurchases,-200,50),
+  ];
+  radarChart = new Chart(document.getElementById('ch-radar'), {
+    type:'radar',
+    data:{
+      labels:['Récence','Fréquence','Montant','Satisfaction','Ancienneté','Fidélité','Diversité','Cadence'],
+      datasets:[
+        { label:'Ce client', data:vals, backgroundColor:'rgba(0,245,212,0.08)', borderColor:'#00f5d4', borderWidth:2, pointBackgroundColor:'#00f5d4', pointRadius:4 },
+        { label:'Moyenne',   data:[60,38,30,55,48,72,35,42], backgroundColor:'rgba(139,92,246,0.06)', borderColor:'rgba(139,92,246,0.5)', borderWidth:1.5, borderDash:[5,5], pointBackgroundColor:'#8b5cf6', pointRadius:2 }
+      ]
+    },
+    options:{
+      scales:{ r:{ min:0,max:100, ticks:{display:false}, grid:{color:'rgba(255,255,255,0.05)'}, angleLines:{color:'rgba(255,255,255,0.06)'}, pointLabels:{color:'#4b5563',font:{size:9,family:'Space Mono'}} } },
+      plugins:{ legend:{ labels:{color:'#4b5563',font:{size:9,family:'Space Mono'},boxWidth:10,padding:14} } },
+      animation:{duration:800,easing:'easeOutQuart'}
+    }
+  });
+}
+
+function renderEngage(score) {
+  if (engageChart) engageChart.destroy();
+  const col = score>65?'#00f5d4':score>35?'#f59e0b':'#ef4444';
+  engageChart = new Chart(document.getElementById('ch-engage'), {
+    type:'doughnut',
+    data:{ datasets:[{ data:[score,100-score], backgroundColor:[col,'rgba(255,255,255,0.04)'], borderWidth:0, borderRadius:4 }] },
+    options:{ cutout:'75%', plugins:{legend:{display:false},tooltip:{enabled:false}}, animation:{duration:900,easing:'easeOutQuart'} },
+    plugins:[{ id:'ct', afterDraw(chart) {
+      const {ctx,chartArea:{left,top,right,bottom}} = chart;
+      const cx=(left+right)/2, cy=(top+bottom)/2;
+      ctx.save(); ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillStyle=col; ctx.font='bold 22px Space Grotesk'; ctx.fillText(score,cx,cy-7);
+      ctx.fillStyle='#4b5563'; ctx.font='9px Space Mono'; ctx.fillText('ENGAGEMENT',cx,cy+12);
+      ctx.restore();
+    }}]
+  });
+}
+
+function renderMetrics(d, r) {
+  const n = (v,mn,mx) => Math.min(100,Math.max(0,Math.round((v-mn)/(mx-mn)*100)));
+  const metrics = [
+    {name:'Récence (inverse)',      val:n(400-d.Recency,0,400),                      col:'#00f5d4'},
+    {name:'Fréquence',              val:n(d.Frequency,1,50),                         col:'#3b82f6'},
+    {name:'Montant cumulé',         val:n(d.MonetaryTotal,0,5000),                   col:'#f59e0b'},
+    {name:'Satisfaction client',    val:n(d.SatisfactionScore,1,5),                  col:'#10b981'},
+    {name:'Ancienneté relation',    val:n(d.CustomerTenureDays,0,730),               col:'#8b5cf6'},
+    {name:'Taux rétention',         val:Math.round((1-r.churn_probability)*100),     col:'#ec4899'},
+    {name:'Diversité produits',     val:n(d.UniqueProducts,1,100),                   col:'#00f5d4'},
+    {name:'Fiabilité (no retours)', val:n(1-d.ReturnRatio,0,1),                      col:'#10b981'},
+  ];
+  document.getElementById('metric-list').innerHTML = metrics.map(m=>`
+    <div class="metric-row">
+      <div class="metric-top"><span class="metric-name">${m.name}</span><span class="metric-num">${m.val}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${m.val}%;background:${m.col};box-shadow:0 0 6px ${m.col}40"></div></div>
+    </div>`).join('');
+}
+</script>
+</body>
+</html>

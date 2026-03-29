@@ -1,0 +1,8 @@
+name,r2,rmse,mae,cv_r2
+Ridge Regression,0.9231590300457758,0.26766603440209263,0.18322962493436665,0.9341949187920271
+Random Forest Regressor,0.9602005115481875,0.19263517446911427,0.11473710915632894,0.9616642775733839
+R²   → % de variance expliquée        → plus proche de 1   = mieux ✅
+RMSE → erreur moyenne (en €/unités)   → plus proche de 0   = mieux ✅
+MAE  → erreur absolue moyenne         → plus proche de 0   = mieux ✅
+CV_R²→ R² sur validation croisée      → plus proche de 1   = mieux ✅
+=>rf est le mieru

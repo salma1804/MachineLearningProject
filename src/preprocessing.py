@@ -58,8 +58,8 @@ print(df['RegistrationDate'].head(10).tolist())
 
 # Parser les dates avec dayfirst=True (format UK prioritaire)
 df['RegistrationDate'] = pd.to_datetime(df['RegistrationDate'], 
-                                         dayfirst=True, 
-                                         errors='coerce')
+                                         dayfirst=True, #hatynehm DD/MM/Year
+                                         errors='coerce')#ki tbda mch date twali NAT (not a date)
 
 # Extraire les features de date
 df['RegYear'] = df['RegistrationDate'].dt.year

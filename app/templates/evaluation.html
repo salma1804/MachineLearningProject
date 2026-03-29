@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RetailMind — Évaluation des Modèles</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+  --bg:     #03050a; --bg1: #080c14; --bg2: #0d1220;
+  --cyan:   #00f5d4; --purple: #8b5cf6; --amber: #f59e0b;
+  --green:  #10b981; --red: #ef4444;   --blue: #3b82f6;
+  --text:   #f0f4ff; --muted: #4b5563;
+  --border: rgba(255,255,255,0.06); --border2: rgba(255,255,255,0.12);
+  --sans: 'Space Grotesk', sans-serif;
+  --mono: 'Space Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); overflow-x: hidden; }
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 1.5rem; height: 56px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(8,12,20,0.9); backdrop-filter: blur(20px);
+  position: sticky; top: 0; z-index: 100;
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 0.95rem; }
+.brand-dot { width: 8px; height: 8px; background: var(--cyan); border-radius: 50%; box-shadow: 0 0 8px var(--cyan); animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+.nav-links { display: flex; gap: 0.3rem; }
+.nav-link { padding: 5px 14px; border-radius: 6px; font-size: 0.72rem; font-family: var(--mono); color: var(--muted); cursor: pointer; border: 1px solid transparent; text-transform: uppercase; letter-spacing: 0.08em; text-decoration: none; transition: all 0.2s; }
+.nav-link:hover, .nav-link.active { color: var(--cyan); border-color: rgba(0,245,212,0.2); background: rgba(0,245,212,0.05); }
+.live-time { font-family: var(--mono); font-size: 0.65rem; color: var(--muted); }
+
+.page { padding: 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
+
+.page-title {
+  font-size: 0.6rem; font-family: var(--mono); color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.2em; margin-bottom: 1.5rem;
+  display: flex; align-items: center; gap: 10px;
+}
+.page-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+.loading-state {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 1rem; padding: 4rem;
+  color: var(--muted); font-family: var(--mono); font-size: 0.75rem;
+}
+.loading-ring {
+  width: 40px; height: 40px;
+  border: 2px solid var(--border2);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.sec-head {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 1rem; margin-top: 1.5rem;
+}
+.sec-head:first-of-type { margin-top: 0; }
+.sec-icon {
+  width: 28px; height: 28px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.85rem;
+}
+.sec-icon.clf  { background: rgba(239,68,68,0.12);   color: var(--red);    }
+.sec-icon.reg  { background: rgba(245,158,11,0.12);  color: var(--amber);  }
+.sec-icon.clus { background: rgba(139,92,246,0.12);  color: var(--purple); }
+.sec-icon.feat { background: rgba(0,245,212,0.1);    color: var(--cyan);   }
+.sec-title { font-size: 0.85rem; font-weight: 600; }
+.sec-sub { font-size: 0.65rem; font-family: var(--mono); color: var(--muted); margin-left: auto; }
+
+.card {
+  background: var(--bg1); border: 1px solid var(--border);
+  border-radius: 14px; padding: 1.2rem;
+}
+
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+.g4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 1rem; }
+
+.mbox {
+  background: var(--bg1); border: 1px solid var(--border);
+  border-radius: 12px; padding: 1rem 1.2rem;
+  position: relative; overflow: hidden;
+}
+.mbox::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent, var(--cyan)); }
+.mbox.red   { --accent: var(--red);    }
+.mbox.green { --accent: var(--green);  }
+.mbox.amber { --accent: var(--amber);  }
+.mbox.blue  { --accent: var(--blue);   }
+.mbox.purple{ --accent: var(--purple); }
+.mbox.cyan  { --accent: var(--cyan);   }
+
+.mbox-label { font-size: 0.55rem; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 0.4rem; }
+.mbox-val   { font-size: 1.6rem; font-weight: 700; line-height: 1; }
+.mbox-sub   { font-size: 0.62rem; font-family: var(--mono); color: var(--muted); margin-top: 4px; }
+
+.winner-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.6rem; font-family: var(--mono); font-weight: 700;
+  padding: 3px 10px; border-radius: 20px;
+  background: rgba(0,245,212,0.1); color: var(--cyan);
+  border: 1px solid rgba(0,245,212,0.3);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.winner-badge::before { content: '★'; }
+
+.cmp-table { width: 100%; border-collapse: collapse; }
+.cmp-table th {
+  font-size: 0.55rem; font-family: var(--mono); color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  padding: 8px 12px; text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.cmp-table td {
+  padding: 10px 12px; font-size: 0.78rem; font-family: var(--mono);
+  border-bottom: 1px solid var(--border);
+}
+.cmp-table tr:last-child td { border-bottom: none; }
+.cmp-table .metric-name { color: var(--muted); font-size: 0.7rem; }
+.val-good { color: var(--green); }
+.val-bad  { color: var(--red);   }
+
+.chart-card { background: var(--bg1); border: 1px solid var(--border); border-radius: 14px; padding: 1.2rem; }
+.chart-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.8rem; }
+.chart-title { font-size: 0.58rem; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; }
+.chart-wrap { position: relative; }
+.h200 { height: 200px; }
+.h260 { height: 260px; }
+.h300 { height: 300px; }
+
+.cm-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 6px; margin-top: 0.5rem;
+}
+.cm-cell {
+  border-radius: 8px; padding: 1rem;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.cm-cell.tp { background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.25); }
+.cm-cell.tn { background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.15); }
+.cm-cell.fp { background: rgba(239,68,68,0.08);  border: 1px solid rgba(239,68,68,0.2);  }
+.cm-cell.fn { background: rgba(239,68,68,0.12);  border: 1px solid rgba(239,68,68,0.25); }
+.cm-val  { font-size: 1.6rem; font-weight: 700; }
+.cm-lab  { font-size: 0.55rem; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+.cm-sub  { font-size: 0.6rem; color: var(--muted); font-family: var(--mono); }
+.cm-cell.tp .cm-val, .cm-cell.tn .cm-val { color: var(--green); }
+.cm-cell.fp .cm-val, .cm-cell.fn .cm-val { color: var(--red);   }
+
+.cluster-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 0.8rem; }
+.cluster-top { display: flex; align-items: center; justify-content: space-between; }
+.cluster-name { font-size: 0.7rem; font-family: var(--mono); }
+.cluster-meta { font-size: 0.62rem; font-family: var(--mono); color: var(--muted); }
+.cluster-bar-track { height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; }
+.cluster-bar-fill { height: 100%; border-radius: 3px; transition: width 1s cubic-bezier(.4,0,.2,1); }
+.churn-indicator { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.churn-mini-track { flex: 1; height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+.churn-mini-fill { height: 100%; border-radius: 2px; transition: width 1s ease; }
+.churn-mini-label { font-size: 0.55rem; font-family: var(--mono); color: var(--muted); white-space: nowrap; }
+
+.verdict-card {
+  background: linear-gradient(135deg, rgba(0,245,212,0.05) 0%, rgba(139,92,246,0.05) 100%);
+  border: 1px solid rgba(0,245,212,0.2);
+  border-radius: 14px; padding: 1.4rem;
+  display: flex; flex-direction: column; gap: 0.8rem;
+}
+.verdict-title { font-size: 0.55rem; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.15em; }
+.verdict-text  { font-size: 0.85rem; line-height: 1.6; color: var(--text); opacity: 0.85; }
+.verdict-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.vpill {
+  font-size: 0.6rem; font-family: var(--mono); padding: 3px 10px;
+  border-radius: 20px; border: 1px solid;
+}
+.vpill.good { color: var(--green); border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.06); }
+.vpill.warn { color: var(--amber); border-color: rgba(245,158,11,0.3);  background: rgba(245,158,11,0.06); }
+.vpill.info { color: var(--cyan);  border-color: rgba(0,245,212,0.3);   background: rgba(0,245,212,0.06); }
+
+.sep { height: 1px; background: var(--border); margin: 1rem 0; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-dot"></div>
+    RetailMind
+  </div>
+  <nav class="nav-links">
+    <a href="/" class="nav-link">Prédiction</a>
+    <a href="/evaluation" class="nav-link active">Évaluation</a>
+  </nav>
+  <div class="live-time" id="live-time">--:--:--</div>
+</header>
+
+<div class="page" id="page">
+  <div class="loading-state" id="loading">
+    <div class="loading-ring"></div>
+    Calcul des métriques en cours…
+  </div>
+</div>
+
+<script>
+function tick() { document.getElementById('live-time').textContent = new Date().toLocaleTimeString('fr-FR'); }
+tick(); setInterval(tick, 1000);
+
+let rocChart = null, scatterChart = null, featChart = null;
+
+async function loadEval() {
+  try {
+    const res = await fetch('/api/evaluate');
+    const d   = await res.json();
+    if (!d.success) throw new Error(d.error);
+    renderAll(d);
+  } catch(e) {
+    document.getElementById('page').innerHTML = `
+      <div class="loading-state" style="color:var(--red)">
+        Erreur : ${e.message}<br>
+        <small style="color:var(--muted);margin-top:8px">Vérifiez que X_test.csv et y_test.csv existent dans data/train_test/</small>
+      </div>`;
+  }
+}
+
+function renderAll(d) {
+  const page = document.getElementById('page');
+  page.innerHTML = buildHTML(d);
+  renderCharts(d);
+}
+
+function buildHTML(d) {
+  const clf  = d.classification;
+  const rf   = clf.models[0];
+  const nb   = clf.models[1];
+  const reg  = d.regression;
+  const rfr  = reg.models[0];
+  const rid  = reg.models[1];
+  const clus = d.clustering;
+  const fi   = d.feature_importance;
+
+  const cm   = rf.cm;
+  const TN   = cm[0][0], FP = cm[0][1], FN = cm[1][0], TP = cm[1][1];
+
+  const CLUSTER_NAMES = ['Churners','Fidèles','À risque','Dormants','Champions'];
+  const CLUSTER_COLS  = ['#ef4444','#10b981','#f59e0b','#4b5563','#00f5d4'];
+
+  return `
+  <div class="page-title">Évaluation des modèles — résultats sur données de test</div>
+
+  <div class="sec-head">
+    <div class="sec-icon clf">⚡</div>
+    <span class="sec-title">Vue d'ensemble — Classification (Churn)</span>
+    <span class="sec-sub">${clf.n_test.toLocaleString()} clients test · Taux churn réel : ${(clf.churn_rate*100).toFixed(1)}%</span>
+  </div>
+
+  <div class="g4" style="margin-bottom:1rem">
+    <div class="mbox cyan">
+      <div class="mbox-label">ROC-AUC — Random Forest</div>
+      <div class="mbox-val" style="color:var(--cyan)">${rf.auc}</div>
+      <div class="mbox-sub">Meilleur modèle · ${(rf.auc*100).toFixed(1)}% de pouvoir discriminant</div>
+    </div>
+    <div class="mbox green">
+      <div class="mbox-label">Accuracy</div>
+      <div class="mbox-val" style="color:var(--green)">${(rf.accuracy*100).toFixed(1)}%</div>
+      <div class="mbox-sub">Prédictions correctes sur test</div>
+    </div>
+    <div class="mbox amber">
+      <div class="mbox-label">F1-Score (Churn)</div>
+      <div class="mbox-val" style="color:var(--amber)">${rf.f1}</div>
+      <div class="mbox-sub">Équilibre Precision / Recall</div>
+    </div>
+    <div class="mbox red">
+      <div class="mbox-label">Recall (Churn)</div>
+      <div class="mbox-val" style="color:var(--red)">${(rf.recall*100).toFixed(1)}%</div>
+      <div class="mbox-sub">Churners correctement détectés</div>
+    </div>
+  </div>
+
+  <div class="g3" style="margin-bottom:1rem">
+    <div class="chart-card">
+      <div class="chart-head">
+        <span class="chart-title">Courbe ROC</span>
+        <span class="winner-badge">RF AUC=${rf.auc}</span>
+      </div>
+      <div class="chart-wrap h200"><canvas id="ch-roc"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="chart-head">
+        <span class="chart-title">Matrice de confusion — Random Forest</span>
+      </div>
+      <div class="cm-grid">
+        <div class="cm-cell tn">
+          <span class="cm-val">${TN}</span>
+          <span class="cm-lab">TN</span>
+          <span class="cm-sub">Fidèle prédit Fidèle</span>
+        </div>
+        <div class="cm-cell fp">
+          <span class="cm-val">${FP}</span>
+          <span class="cm-lab">FP</span>
+          <span class="cm-sub">Fidèle prédit Churn</span>
+        </div>
+        <div class="cm-cell fn">
+          <span class="cm-val">${FN}</span>
+          <span class="cm-lab">FN</span>
+          <span class="cm-sub">Churn prédit Fidèle</span>
+        </div>
+        <div class="cm-cell tp">
+          <span class="cm-val">${TP}</span>
+          <span class="cm-lab">TP</span>
+          <span class="cm-sub">Churn prédit Churn</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="chart-head">
+        <span class="chart-title">RF vs Naive Bayes</span>
+      </div>
+      <table class="cmp-table">
+        <thead>
+          <tr>
+            <th>Métrique</th>
+            <th style="color:var(--cyan)">Random Forest</th>
+            <th>Naive Bayes</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${[
+            ['ROC-AUC',   rf.auc,       nb.auc],
+            ['Accuracy',  rf.accuracy,  nb.accuracy],
+            ['Precision', rf.precision, nb.precision],
+            ['Recall',    rf.recall,    nb.recall],
+            ['F1-Score',  rf.f1,        nb.f1],
+          ].map(([name, v1, v2]) => `
+            <tr>
+              <td class="metric-name">${name}</td>
+              <td class="${v1>=v2?'val-good':'val-bad'}">${v1}</td>
+              <td class="${v2>=v1?'val-good':'val-bad'}">${v2}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sep"></div>
+
+  <div class="sec-head">
+    <div class="sec-icon feat">◈</div>
+    <span class="sec-title">Importance des features — Random Forest</span>
+    <span class="sec-sub">Top 20 variables les plus influentes pour prédire le churn</span>
+  </div>
+
+  <div class="chart-card" style="margin-bottom:1rem">
+    <div class="chart-wrap h300"><canvas id="ch-feat"></canvas></div>
+  </div>
+
+  <div class="sep"></div>
+
+  <div class="sec-head">
+    <div class="sec-icon reg">£</div>
+    <span class="sec-title">Régression — Prédiction MonetaryTotal</span>
+    <span class="sec-sub">RF vs Ridge · R² = coefficient de détermination</span>
+  </div>
+
+  <div class="g4" style="margin-bottom:1rem">
+    <div class="mbox cyan">
+      <div class="mbox-label">R² — Random Forest</div>
+      <div class="mbox-val" style="color:var(--cyan)">${rfr ? rfr.r2 : 'N/A'}</div>
+      <div class="mbox-sub">1.0 = parfait · 0 = modèle nul</div>
+    </div>
+    <div class="mbox amber">
+      <div class="mbox-label">RMSE — Random Forest</div>
+      <div class="mbox-val" style="color:var(--amber)">£${rfr ? rfr.rmse.toLocaleString() : 'N/A'}</div>
+      <div class="mbox-sub">Erreur moyenne en livres</div>
+    </div>
+    <div class="mbox blue">
+      <div class="mbox-label">R² — Ridge</div>
+      <div class="mbox-val" style="color:var(--blue)">${rid ? rid.r2 : 'N/A'}</div>
+      <div class="mbox-sub">Régression linéaire régularisée</div>
+    </div>
+    <div class="mbox purple">
+      <div class="mbox-label">RMSE — Ridge</div>
+      <div class="mbox-val" style="color:var(--purple)">£${rid ? rid.rmse.toLocaleString() : 'N/A'}</div>
+      <div class="mbox-sub">Erreur moyenne en livres</div>
+    </div>
+  </div>
+
+  <div class="g2" style="margin-bottom:1rem">
+    <div class="chart-card">
+      <div class="chart-head">
+        <span class="chart-title">Réel vs Prédit — Random Forest</span>
+        <span class="winner-badge">R²=${rfr ? rfr.r2 : 'N/A'}</span>
+      </div>
+      <div class="chart-wrap h260"><canvas id="ch-scatter"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="chart-head"><span class="chart-title">RF vs Ridge — comparaison</span></div>
+      <table class="cmp-table">
+        <thead>
+          <tr><th>Métrique</th><th style="color:var(--cyan)">Random Forest</th><th>Ridge</th></tr>
+        </thead>
+        <tbody>
+          ${rfr && rid ? [
+            ['R²',   rfr.r2,   rid.r2,   true ],
+            ['RMSE', rfr.rmse, rid.rmse, false],
+            ['MAE',  rfr.mae,  rid.mae,  false],
+          ].map(([name, v1, v2, higher]) => `
+            <tr>
+              <td class="metric-name">${name}</td>
+              <td class="${higher?(v1>=v2?'val-good':'val-bad'):(v1<=v2?'val-good':'val-bad')}">${v1}</td>
+              <td class="${higher?(v2>=v1?'val-good':'val-bad'):(v2<=v1?'val-good':'val-bad')}">${v2}</td>
+            </tr>
+          `).join('') : '<tr><td colspan="3" style="color:var(--muted)">Données indisponibles</td></tr>'}
+        </tbody>
+      </table>
+      <div style="margin-top:1rem">
+        <div style="font-size:0.6rem;font-family:var(--mono);color:var(--muted);margin-bottom:6px">POURQUOI RF GAGNE</div>
+        <div style="font-size:0.72rem;color:var(--text);opacity:0.7;line-height:1.6">
+          Ridge suppose une relation <strong>linéaire</strong> entre les features et MonetaryTotal. Random Forest capture les interactions non-linéaires complexes.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sep"></div>
+
+  <div class="sec-head">
+    <div class="sec-icon clus">◎</div>
+    <span class="sec-title">Clustering K-Means — ${clus.n_clusters} segments</span>
+    <span class="sec-sub">Inertie : ${clus.inertia.toLocaleString()} · Distribution par cluster</span>
+  </div>
+
+  <div class="g2" style="margin-bottom:1rem">
+    <div class="card">
+      ${Object.entries(clus.distribution).map(([k, v]) => {
+        const col = CLUSTER_COLS[parseInt(k)] || '#64748b';
+        const name = CLUSTER_NAMES[parseInt(k)] || `Cluster ${k}`;
+        return `
+        <div class="cluster-row">
+          <div class="cluster-top">
+            <span class="cluster-name" style="color:${col}">#${k} ${name}</span>
+            <span class="cluster-meta">${v.count.toLocaleString()} clients · ${v.pct}%</span>
+          </div>
+          <div class="cluster-bar-track">
+            <div class="cluster-bar-fill" style="width:${v.pct}%;background:${col}22;border-right:2px solid ${col}"></div>
+          </div>
+          <div class="churn-indicator">
+            <span class="churn-mini-label">Churn ${(v.churn_rate*100).toFixed(0)}%</span>
+            <div class="churn-mini-track">
+              <div class="churn-mini-fill" style="width:${v.churn_rate*100}%;background:${v.churn_rate>0.5?'var(--red)':v.churn_rate>0.25?'var(--amber)':'var(--green)'}"></div>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+
+    <div class="verdict-card">
+      <div class="verdict-title">Verdict — Meilleur modèle par tâche</div>
+      <div class="verdict-text">
+        <strong style="color:var(--cyan)">Random Forest</strong> est le meilleur modèle sur les deux tâches supervisées. Il surpasse Naive Bayes en classification (AUC ${rf.auc} vs ${nb.auc}) et Ridge en régression (R² ${rfr?rfr.r2:'N/A'} vs ${rid?rid.r2:'N/A'}).
+        <br><br>
+        La raison principale : ton dataset contient <strong>105 features</strong> avec des interactions complexes et non-linéaires que seul Random Forest sait capturer.
+      </div>
+      <div class="verdict-pills">
+        <span class="vpill good">RF Classification ✓</span>
+        <span class="vpill good">RF Régression ✓</span>
+        <span class="vpill info">K-Means Clustering</span>
+        <span class="vpill warn">NB : hypothèses violées</span>
+        <span class="vpill warn">Ridge : non-linéaire</span>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+function renderCharts(d) {
+  const rf  = d.classification.models[0];
+  const nb  = d.classification.models[1];
+  const rfr = d.regression.models[0];
+  const fi  = d.feature_importance;
+
+  if (rocChart) rocChart.destroy();
+  rocChart = new Chart(document.getElementById('ch-roc'), {
+    type: 'line',
+    data: {
+      datasets: [
+        { label: `Random Forest (AUC=${rf.auc})`, data: rf.roc_fpr.map((x,i)=>({x,y:rf.roc_tpr[i]})), borderColor:'#00f5d4', borderWidth:2, fill:false, pointRadius:0, tension:0.3 },
+        { label: `Naive Bayes (AUC=${nb.auc})`,   data: nb.roc_fpr.map((x,i)=>({x,y:nb.roc_tpr[i]})), borderColor:'#8b5cf6', borderWidth:1.5, borderDash:[4,4], fill:false, pointRadius:0, tension:0.3 },
+        { label: 'Aléatoire (AUC=0.5)', data:[{x:0,y:0},{x:1,y:1}], borderColor:'rgba(255,255,255,0.15)', borderWidth:1, borderDash:[6,6], fill:false, pointRadius:0 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { type:'linear', min:0, max:1, title:{display:true,text:'FPR',color:'#4b5563',font:{size:9,family:'Space Mono'}}, ticks:{color:'#4b5563',font:{size:8}}, grid:{color:'rgba(255,255,255,0.04)'} },
+        y: { min:0, max:1, title:{display:true,text:'TPR',color:'#4b5563',font:{size:9,family:'Space Mono'}}, ticks:{color:'#4b5563',font:{size:8}}, grid:{color:'rgba(255,255,255,0.04)'} }
+      },
+      plugins: { legend:{ labels:{color:'#4b5563',font:{size:9,family:'Space Mono'},boxWidth:12,padding:10} } },
+      animation: { duration:800 },
+    }
+  });
+
+  if (scatterChart) scatterChart.destroy();
+  if (rfr) {
+    const mn = Math.min(...rfr.scatter_real, ...rfr.scatter_pred);
+    const mx = Math.max(...rfr.scatter_real, ...rfr.scatter_pred);
+    scatterChart = new Chart(document.getElementById('ch-scatter'), {
+      type: 'scatter',
+      data: {
+        datasets: [
+          { label:'Prédictions', data: rfr.scatter_real.map((x,i)=>({x,y:rfr.scatter_pred[i]})), backgroundColor:'rgba(0,245,212,0.4)', pointRadius:3, pointHoverRadius:5 },
+          { label:'Parfait', data:[{x:mn,y:mn},{x:mx,y:mx}], type:'line', borderColor:'rgba(255,255,255,0.2)', borderWidth:1, borderDash:[5,5], pointRadius:0, fill:false }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { title:{display:true,text:'Réel (£)',color:'#4b5563',font:{size:9,family:'Space Mono'}}, ticks:{color:'#4b5563',font:{size:8}}, grid:{color:'rgba(255,255,255,0.04)'} },
+          y: { title:{display:true,text:'Prédit (£)',color:'#4b5563',font:{size:9,family:'Space Mono'}}, ticks:{color:'#4b5563',font:{size:8}}, grid:{color:'rgba(255,255,255,0.04)'} }
+        },
+        plugins: { legend:{ labels:{color:'#4b5563',font:{size:9,family:'Space Mono'},boxWidth:10,padding:10} } },
+        animation: { duration:600 }
+      }
+    });
+  }
+
+  if (featChart) featChart.destroy();
+  const barHeight = Math.max(300, fi.features.length * 22 + 60);
+  document.querySelector('.h300').style.height = barHeight + 'px';
+  const colors = fi.values.map(v => {
+    const norm = v / Math.max(...fi.values);
+    if (norm > 0.7) return '#00f5d4';
+    if (norm > 0.4) return '#3b82f6';
+    return '#8b5cf6';
+  });
+  featChart = new Chart(document.getElementById('ch-feat'), {
+    type: 'bar',
+    data: {
+      labels: fi.features,
+      datasets: [{ data: fi.values, backgroundColor: colors, borderRadius: 4, borderWidth: 0 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      indexAxis: 'y',
+      scales: {
+        x: { ticks:{color:'#4b5563',font:{size:8,family:'Space Mono'}}, grid:{color:'rgba(255,255,255,0.04)'} },
+        y: { ticks:{color:'#94a3b8',font:{size:9,family:'Space Mono'}}, grid:{display:false} }
+      },
+      plugins: { legend:{display:false}, tooltip:{ callbacks:{ label: ctx => ` Importance: ${(ctx.raw*100).toFixed(2)}%` } } },
+      animation: { duration:800, easing:'easeOutQuart' }
+    }
+  });
+}
+
+loadEval();
+</script>
+</body>
+</html>
