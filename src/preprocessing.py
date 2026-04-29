@@ -2,329 +2,250 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
+from imblearn.over_sampling import SMOTE
+import joblib
+import os
 import warnings
 warnings.filterwarnings('ignore')
 
-# Charger les données
-df = pd.read_csv('C:\\Users\\User\\Desktop\\MlProject\\MachineLearningProject\\data\\raw\\retail_customers_COMPLETE_CATEGORICAL (1).csv')
 
-print("=== AVANT NETTOYAGE ===")
-print(f"Shape: {df.shape}")
-print(f"\nValeurs manquantes par colonne:")
+BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR  = os.path.join(BASE_DIR, '..')
+RAW_PATH  = os.path.join(ROOT_DIR, 'data', 'raw',
+                          'retail_customers_COMPLETE_CATEGORICAL.csv')
+PROC_DIR  = os.path.join(ROOT_DIR, 'data', 'processed')
+TT_DIR    = os.path.join(ROOT_DIR, 'data', 'train_test')
+MODEL_DIR = os.path.join(ROOT_DIR, 'models')
+
+for d in [PROC_DIR, TT_DIR, MODEL_DIR]:
+    os.makedirs(d, exist_ok=True)
+
+df = pd.read_csv(RAW_PATH)
+
+print("=" * 60)
+print("AVANT NETTOYAGE")
+print("=" * 60)
+print(f"Shape : {df.shape}")
+print(f"\nValeurs manquantes :")
 print(df.isnull().sum()[df.isnull().sum() > 0])
-print(f"\nTypes de données:")
-print(df.dtypes)
-
-
-# ============================================
-# ÉTAPE 1 : IMPUTATION DES VALEURS MANQUANTES
-# ============================================
-
-# 1.1 Age : Imputation par MÉDIANE (1311 valeurs manquantes)
+print(f"\nTypes :")
+print(df.dtypes.value_counts())
 median_age = df['Age'].median()
 df['Age'] = df['Age'].fillna(median_age)
-print(f"Age - Médiane utilisée: {median_age}")
+print(f"\n[1] Age          — médiane : {median_age:.1f}")
 
-# 1.2 AvgDaysBetweenPurchases : Imputation par MÉDIANE (79 valeurs manquantes)
+
 median_days = df['AvgDaysBetweenPurchases'].median()
 df['AvgDaysBetweenPurchases'] = df['AvgDaysBetweenPurchases'].fillna(median_days)
-print(f"AvgDaysBetweenPurchases - Médiane utilisée: {median_days}")
+print(f"[1] AvgDaysBtw   — médiane : {median_days:.1f}")
 
-# 1.3 SupportTicketsCount : Remplacer -1 et 999 par NaN, puis MÉDIANE
+
 df['SupportTicketsCount'] = df['SupportTicketsCount'].replace([-1, 999], np.nan)
-print(f"\nSupportTicketsCount - Valeurs uniques avant nettoyage: {sorted(df['SupportTicketsCount'].dropna().unique())[:10]}...")
 median_tickets = df['SupportTicketsCount'].median()
 df['SupportTicketsCount'] = df['SupportTicketsCount'].fillna(median_tickets)
-print(f"SupportTicketsCount - Médiane utilisée: {median_tickets}")
+print(f"[1] SupportTkt   — médiane : {median_tickets:.1f}")
 
-# 1.4 SatisfactionScore : Remplacer -1 et 99 par NaN, puis MODE
+
 df['SatisfactionScore'] = df['SatisfactionScore'].replace([-1, 99], np.nan)
-print(f"\nSatisfactionScore - Valeurs uniques avant nettoyage: {sorted(df['SatisfactionScore'].dropna().unique())}")
-mode_satisfaction = df['SatisfactionScore'].mode()[0]
-df['SatisfactionScore'] = df['SatisfactionScore'].fillna(mode_satisfaction)
-print(f"SatisfactionScore - Mode utilisé: {mode_satisfaction}")
+mode_sat = df['SatisfactionScore'].mode()[0]
+df['SatisfactionScore'] = df['SatisfactionScore'].fillna(mode_sat)
+print(f"[1] Satisfaction — mode    : {mode_sat}")
 
-print("\n=== Après imputation ===")
-print(f"Valeurs manquantes restantes: {df.isnull().sum().sum()}")
+print(f"\n    Valeurs manquantes restantes : {df.isnull().sum().sum()}")
 
 
-# ============================================
-# ÉTAPE 2 : PARSING DES DATES
-# ============================================
 
-# Vérifier les formats de date
-print("Exemples de RegistrationDate:")
-print(df['RegistrationDate'].head(10).tolist())
-
-# Parser les dates avec dayfirst=True (format UK prioritaire)
-df['RegistrationDate'] = pd.to_datetime(df['RegistrationDate'], 
-                                         dayfirst=True, #hatynehm DD/MM/Year
-                                         errors='coerce')#ki tbda mch date twali NAT (not a date)
-
-# Extraire les features de date
-df['RegYear'] = df['RegistrationDate'].dt.year
-df['RegMonth'] = df['RegistrationDate'].dt.month
-df['RegDay'] = df['RegistrationDate'].dt.day
+df['RegistrationDate'] = pd.to_datetime(
+    df['RegistrationDate'], dayfirst=True, errors='coerce'
+)
+df['RegYear']    = df['RegistrationDate'].dt.year
+df['RegMonth']   = df['RegistrationDate'].dt.month
+df['RegDay']     = df['RegistrationDate'].dt.day
 df['RegWeekday'] = df['RegistrationDate'].dt.weekday
-
-# Supprimer la colonne RegistrationDate originale
-df = df.drop('RegistrationDate', axis=1)
-
-print(f"\nNouvelles features de date créées: RegYear, RegMonth, RegDay, RegWeekday")
-print(f"Shape après parsing des dates: {df.shape}")
+df.drop('RegistrationDate', axis=1, inplace=True)
+print(f"\n[2] RegistrationDate parsée → RegYear/Month/Day/Weekday")
 
 
-# ============================================
-# ÉTAPE 3 : SUPPRESSION DES FEATURES INUTILES
-# ============================================
+if 'LastLoginIP' in df.columns:
+    df['IP_IsPrivate'] = df['LastLoginIP'].astype(str).apply(
+        lambda ip: 1 if (ip.startswith('10.') or
+                         ip.startswith('192.168.') or
+                         ip.startswith('172.')) else 0
+    )
+    df.drop('LastLoginIP', axis=1, inplace=True)
+    print("[3] LastLoginIP  → IP_IsPrivate (feature engineered)")
 
-# 3.1 Supprimer NewsletterSubscribed (toujours "Yes" - pas de variance)
-print(f"NewsletterSubscribed - Valeurs uniques: {df['NewsletterSubscribed'].unique()}")
-df = df.drop('NewsletterSubscribed', axis=1)
-print("NewsletterSubscribed supprimée (valeur constante)")
-
-# 3.2 Supprimer LastLoginIP (trop complexe, pas utile pour ML)
-df = df.drop('LastLoginIP', axis=1)
-print("LastLoginIP supprimée")
-
-# 3.3 Supprimer CustomerID (identifiant unique, pas utile pour ML)
-df = df.drop('CustomerID', axis=1)
-print("CustomerID supprimée")
-
-print(f"\nShape après suppression des features inutiles: {df.shape}")
+cols_to_drop = ['NewsletterSubscribed', 'CustomerID']
+existing = [c for c in cols_to_drop if c in df.columns]
+df.drop(existing, axis=1, inplace=True)
+print(f"[3] Supprimées   : {existing}")
 
 
-# ============================================
-# ÉTAPE 4 : DÉTECTION ET TRAITEMENT DES OUTLIERS
-# ============================================
+leakage_cols = [
+    'ChurnRiskCategory',  
+    'RFMSegment',          
+                          
+    'LoyaltyLevel',        
+    'SpendingCategory',    
+    'AgeCategory',        
+    'CustomerType',       
+    'BasketSizeCategory',  
+]
+existing_leakage = [c for c in leakage_cols if c in df.columns]
+df.drop(existing_leakage, axis=1, inplace=True)
+print(f"[3] Anti-leakage : {existing_leakage}")
+print(f"    Shape        : {df.shape}")
 
 def cap_outliers_iqr(series):
-    """Limite les outliers aux bornes IQR"""
-    Q1 = series.quantile(0.25)
-    Q3 = series.quantile(0.75)
+    Q1, Q3 = series.quantile(0.25), series.quantile(0.75)
     IQR = Q3 - Q1
-    lower_bound = Q1 - 1.5 * IQR
-    upper_bound = Q3 + 1.5 * IQR
-    return series.clip(lower_bound, upper_bound)
+    return series.clip(Q1 - 1.5 * IQR, Q3 + 1.5 * IQR)
 
-# Colonnes numériques à traiter pour les outliers
-numeric_cols_for_outliers = ['MonetaryTotal', 'MonetaryAvg', 'MonetaryStd', 
-                              'MonetaryMin', 'MonetaryMax', 'TotalQuantity',
-                              'AvgQuantityPerTransaction', 'Age']
+outlier_cols = ['MonetaryTotal', 'MonetaryAvg', 'MonetaryStd',
+                'MonetaryMin', 'MonetaryMax', 'TotalQuantity',
+                'AvgQuantityPerTransaction', 'Age']
 
-print("=== Traitement des outliers (méthode IQR) ===")
-for col in numeric_cols_for_outliers:
+for col in outlier_cols:
     if col in df.columns:
-        before_min, before_max = df[col].min(), df[col].max()
         df[col] = cap_outliers_iqr(df[col])
-        after_min, after_max = df[col].min(), df[col].max()
-        print(f"{col}: [{before_min:.2f}, {before_max:.2f}] → [{after_min:.2f}, {after_max:.2f}]")
-
-print("\nOutliers traités avec succès")
+print(f"\n[4] Outliers cappés (IQR) sur {len([c for c in outlier_cols if c in df.columns])} colonnes")
 
 
-# ============================================
-# ÉTAPE 5 : GESTION DE LA MULTICOLINÉARITÉ
-# ============================================
+if 'MonetaryTotal' in df.columns and 'Recency' in df.columns:
+    df['MonetaryPerDay']  = df['MonetaryTotal'] / (df['Recency'] + 1)
+if 'MonetaryTotal' in df.columns and 'Frequency' in df.columns:
+    df['AvgBasketValue']  = df['MonetaryTotal'] / (df['Frequency'] + 1)
+if 'Recency' in df.columns and 'CustomerTenure' in df.columns:
+    df['TenureRatio']     = df['Recency'] / (df['CustomerTenure'] + 1)
 
-# Calculer la matrice de corrélation pour les variables numériques
-numeric_df = df.select_dtypes(include=[np.number])
-corr_matrix = numeric_df.corr().abs()
-
-# Trouver les paires fortement corrélées (>0.85)
-high_corr_pairs = []
-for i in range(len(corr_matrix.columns)):
-    for j in range(i+1, len(corr_matrix.columns)):
-        if corr_matrix.iloc[i, j] > 0.85:
-            high_corr_pairs.append((corr_matrix.columns[i], corr_matrix.columns[j], corr_matrix.iloc[i, j]))
-
-print("=== Paires fortement corrélées (|r| > 0.85) ===")
-for pair in high_corr_pairs:
-    print(f"{pair[0]} ↔ {pair[1]}: {pair[2]:.3f}")
-
-# Supprimer les variables redondantes (conserver celle avec plus de sens métier)
-# MonetaryAvg est fortement corrélée avec MonetaryTotal → supprimer MonetaryAvg
-if 'MonetaryAvg' in df.columns:
-    df = df.drop('MonetaryAvg', axis=1)
-    print("\nMonetaryAvg supprimée (redondante avec MonetaryTotal)")
-
-# TotalTransactions et Frequency sont probablement corrélées
-if 'TotalTransactions' in df.columns and 'Frequency' in df.columns:
-    corr_tf = df['TotalTransactions'].corr(df['Frequency'])
-    print(f"\nCorrelation TotalTransactions-Frequency: {corr_tf:.3f}")
-    if abs(corr_tf) > 0.85:
-        df = df.drop('TotalTransactions', axis=1)
-        print("TotalTransactions supprimée (redondante avec Frequency)")
-
-print(f"\nShape après gestion multicolinéarité: {df.shape}")
+print(f"\n[5] Nouvelles features créées : MonetaryPerDay, AvgBasketValue, TenureRatio")
+print(f"    Shape : {df.shape}")
 
 
-# Supprimer les variables fortement corrélées (garder celles avec plus de sens métier)
+corr_drop = ['MonetaryAvg', 'TotalTransactions', 'UniqueInvoices',
+             'UniqueDescriptions', 'MinQuantity', 'AvgProductsPerTransaction',
+             'NegativeQuantityCount']
+existing_corr = [c for c in corr_drop if c in df.columns]
+df.drop(existing_corr, axis=1, inplace=True)
+print(f"\n[6] Multicolinéarité — supprimées : {existing_corr}")
+print(f"    Shape : {df.shape}")
 
-# Frequency ↔ UniqueInvoices (corrélation 1.0) → garder Frequency, supprimer UniqueInvoices
-df = df.drop('UniqueInvoices', axis=1)
-print("UniqueInvoices supprimée (corrélation 1.0 avec Frequency)")
+leakage_proxy = [
+    'SatisfactionScore',  
+    'CancelledTrans',     
+    'ZeroPriceCount',    
+]
+existing_proxy = [c for c in leakage_proxy if c in df.columns]
+df.drop(existing_proxy, axis=1, inplace=True)
+print(f"\n[6b] Proxies churn supprimés : {existing_proxy}")
+print(f"     Shape : {df.shape}")
 
-# UniqueProducts ↔ UniqueDescriptions (corrélation 1.0) → garder UniqueProducts
-df = df.drop('UniqueDescriptions', axis=1)
-print("UniqueDescriptions supprimée (corrélation 1.0 avec UniqueProducts)")
-
-# MinQuantity ↔ MaxQuantity (corrélation 0.961) → garder MaxQuantity
-df = df.drop('MinQuantity', axis=1)
-print("MinQuantity supprimée (corrélation 0.961 avec MaxQuantity)")
-
-# AvgProductsPerTransaction ↔ AvgLinesPerInvoice (corrélation 0.963) → garder AvgLinesPerInvoice
-df = df.drop('AvgProductsPerTransaction', axis=1)
-print("AvgProductsPerTransaction supprimée (corrélation 0.963 avec AvgLinesPerInvoice)")
-
-# NegativeQuantityCount ↔ CancelledTransactions (corrélation 1.0) → garder CancelledTransactions
-df = df.drop('NegativeQuantityCount', axis=1)
-print("NegativeQuantityCount supprimée (corrélation 1.0 avec CancelledTransactions)")
-
-print(f"\nShape après suppression des variables corrélées: {df.shape}")
-
-
-
-# ============================================
-# ÉTAPE 6 : ENCODAGE DES VARIABLES CATÉGORIELLES
-# ============================================
-
-# Identifier les colonnes catégorielles
-categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
-print(f"Variables catégorielles à encoder: {categorical_cols}")
-print(f"\nNombre de variables catégorielles: {len(categorical_cols)}")
-
-# Vérifier les valeurs uniques pour chaque colonne catégorielle
-print("\n=== Valeurs uniques par variable catégorielle ===")
-for col in categorical_cols:
-    print(f"{col}: {df[col].unique()}")
-
-
-# 6.1 Encodage ORDINAL pour les variables avec ordre naturel
-
-# SpendingCategory: Low < Medium < High < VIP
-spending_map = {'Low': 0, 'Medium': 1, 'High': 2, 'VIP': 3}
-df['SpendingCategory'] = df['SpendingCategory'].map(spending_map)
-print("SpendingCategory encodée (ordinal): Low=0, Medium=1, High=2, VIP=3")
-
-# LoyaltyLevel: Nouveau < Jeune < Établi < Ancien
-loyalty_map = {'Nouveau': 0, 'Jeune': 1, 'Établi': 2, 'Ancien': 3}
-df['LoyaltyLevel'] = df['LoyaltyLevel'].map(loyalty_map)
-print("LoyaltyLevel encodée (ordinal): Nouveau=0, Jeune=1, Établi=2, Ancien=3")
-
-# ChurnRiskCategory: Faible < Moyen < Élevé < Critique
-churnrisk_map = {'Faible': 0, 'Moyen': 1, 'Élevé': 2, 'Critique': 3}
-df['ChurnRiskCategory'] = df['ChurnRiskCategory'].map(churnrisk_map)
-print("ChurnRiskCategory encodée (ordinal): Faible=0, Moyen=1, Élevé=2, Critique=3")
-
-# AgeCategory: Inconnu < 18-24 < 25-34 < 35-44 < 45-54 < 55-64 < 65+
-age_map = {'Inconnu': 0, '18-24': 1, '25-34': 2, '35-44': 3, '45-54': 4, '55-64': 5, '65+': 6}
-df['AgeCategory'] = df['AgeCategory'].map(age_map)
-print("AgeCategory encodée (ordinal): Inconnu=0, 18-24=1, ..., 65+=6")
-
-# BasketSizeCategory: Petit < Moyen < Grand
-basket_map = {'Petit': 0, 'Moyen': 1, 'Grand': 2}
-df['BasketSizeCategory'] = df['BasketSizeCategory'].map(basket_map)
-print("BasketSizeCategory encodée (ordinal): Petit=0, Moyen=1, Grand=2")
-
-
-# 6.2 One-Hot Encoding pour les variables nominales
-
-# Variables à encoder avec one-hot
-nominal_cols = ['RFMSegment', 'CustomerType', 'FavoriteSeason', 'PreferredTimeOfDay', 
-                'Region', 'WeekendPreference', 'ProductDiversity', 'Gender', 
+nominal_cols = ['FavoriteSeason', 'PreferredTimeOfDay', 'Region',
+                'WeekendPreference', 'ProductDiversity', 'Gender',
                 'AccountStatus', 'Country']
+nominal_cols = [c for c in nominal_cols if c in df.columns]
+df = pd.get_dummies(df, columns=nominal_cols, drop_first=True)
 
-print(f"Variables nominales à encoder (one-hot): {len(nominal_cols)}")
+print(f"\n[7] Encodage terminé — Shape : {df.shape}")
 
-# Appliquer one-hot encoding
-for col in nominal_cols:
-    dummies = pd.get_dummies(df[col], prefix=col, drop_first=True)
-    df = pd.concat([df, dummies], axis=1)
-    df = df.drop(col, axis=1)
-    print(f"{col}: {len(dummies.columns)} colonnes créées")
-
-print(f"\nShape après encodage: {df.shape}")
-
-
-# ============================================
-# ÉTAPE 7 : SÉPARATION TRAIN/TEST
-# ============================================
-
-# Séparer X (features) et y (target)
 X = df.drop('Churn', axis=1)
 y = df['Churn']
 
-print(f"Features (X): {X.shape}")
-print(f"Target (y): {y.shape}")
-print(f"\nDistribution de la target:")
-print(y.value_counts(normalize=True))
-
-# Split train/test avec stratification
 X_train, X_test, y_train, y_test = train_test_split(
     X, y,
     test_size=0.2,
     random_state=42,
-    stratify=y
+    stratify=y          
+)
+print(f"\n[8] Split 80/20 stratifié")
+print(f"    X_train : {X_train.shape}  |  X_test : {X_test.shape}")
+print(f"    Churn train : {y_train.mean()*100:.1f}%  |  Churn test : {y_test.mean()*100:.1f}%")
+
+
+
+feature_names = X_train.columns.tolist()
+scaler = StandardScaler()
+X_train_scaled = pd.DataFrame(
+    scaler.fit_transform(X_train), columns=feature_names
+)
+X_test_scaled = pd.DataFrame(
+    scaler.transform(X_test), columns=feature_names
 )
 
-print(f"\n=== Train/Test Split ===")
-print(f"X_train: {X_train.shape}")
-print(f"X_test: {X_test.shape}")
-print(f"y_train: {y_train.shape}")
-print(f"y_test: {y_test.shape}")
-    
+joblib.dump(scaler,        os.path.join(MODEL_DIR, 'scaler.pkl'))
+joblib.dump(feature_names, os.path.join(MODEL_DIR, 'feature_names.pkl'))
+print(f"\n[9] StandardScaler — fit sur X_train")
+print(f"    scaler.pkl et feature_names.pkl sauvegardés")
 
-# ============================================
-# ÉTAPE 8 : SCALING DES FEATURES NUMÉRIQUES
-# ============================================
 
-# Identifier les colonnes numériques (exclure la target et les one-hot)
-numeric_features = ['Recency', 'Frequency', 'MonetaryTotal', 'MonetaryStd', 
-                    'MonetaryMin', 'MonetaryMax', 'TotalQuantity', 
-                    'AvgQuantityPerTransaction', 'MaxQuantity', 'CustomerTenureDays',
-                    'FirstPurchaseDaysAgo', 'PreferredDayOfWeek', 'PreferredHour',
-                    'PreferredMonth', 'WeekendPurchaseRatio', 'AvgDaysBetweenPurchases',
-                    'UniqueProducts', 'UniqueCountries', 'ZeroPriceCount',
-                    'CancelledTransactions', 'ReturnRatio', 'TotalTransactions',
-                    'AvgLinesPerInvoice', 'Age', 'SupportTicketsCount', 
-                    'SatisfactionScore', 'RegYear', 'RegMonth', 'RegDay', 'RegWeekday',
-                    'SpendingCategory', 'LoyaltyLevel', 'ChurnRiskCategory', 
-                    'AgeCategory', 'BasketSizeCategory']
+smote = SMOTE(random_state=42)
+X_train_bal, y_train_bal = smote.fit_resample(X_train_scaled, y_train)
 
-# Filtrer pour ne garder que les colonnes qui existent encore
-numeric_features = [col for col in numeric_features if col in X_train.columns]
+print(f"\n[10] SMOTE appliqué sur train uniquement")
+print(f"    Avant : {dict(y_train.value_counts().sort_index())}")
+print(f"    Après : {dict(pd.Series(y_train_bal).value_counts().sort_index())}")
 
-print(f"Features numériques à scaler: {len(numeric_features)}")
 
-# Appliquer StandardScaler (fit sur train, transform sur train et test)
-scaler = StandardScaler()
-X_train[numeric_features] = scaler.fit_transform(X_train[numeric_features])
-X_test[numeric_features] = scaler.transform(X_test[numeric_features])
+from sklearn.decomposition import PCA
 
-print("Scaling appliqué avec StandardScaler")
-print(f"\nExemple de valeurs scalées (X_train premier échantillon):")
-print(X_train.iloc[0][numeric_features[:5]])
-    
 
-# ============================================
-# ÉTAPE 9 : SAUVEGARDE DES FICHIERS NETTOYÉS
-# ============================================
+pca_full = PCA(random_state=42)
+pca_full.fit(X_train_bal)
+cumvar = np.cumsum(pca_full.explained_variance_ratio_)
+n_comp_95 = int(np.argmax(cumvar >= 0.95) + 1)
 
-import os
+print(f"\n[11] ACP : {n_comp_95} composantes retiennent 95% de la variance")
 
-# Créer le dossier de sortie
-output_dir = 'C:\\Users\\User\\Desktop\\MlProject\\MachineLearningProject\\data\\processed'
-output_dir1 = 'C:\\Users\\User\\Desktop\\MlProject\\MachineLearningProject\\data\\train_test'
+pca = PCA(n_components=n_comp_95, random_state=42)
+X_train_pca = pd.DataFrame(
+    pca.fit_transform(X_train_bal),
+    columns=[f'PC{i+1}' for i in range(n_comp_95)]
+)
+X_test_pca = pd.DataFrame(
+    pca.transform(X_test_scaled),
+    columns=[f'PC{i+1}' for i in range(n_comp_95)]
+)
 
-# Sauvegarder les datasets
-X_train.to_csv(f'{output_dir1}/X_train.csv', index=False)
-X_test.to_csv(f'{output_dir1}/X_test.csv', index=False)
-y_train.to_csv(f'{output_dir1}/y_train.csv', index=False)
-y_test.to_csv(f'{output_dir1}/y_test.csv', index=False)
+joblib.dump(pca, os.path.join(MODEL_DIR, 'pca.pkl'))
+print(f"    pca.pkl sauvegardé ({n_comp_95} composantes)")
+print(f"    X_train_pca : {X_train_pca.shape}")
+print(f"    X_test_pca  : {X_test_pca.shape}")
 
-# Sauvegarder aussi le dataset complet nettoyé
-df_cleaned = pd.concat([X_train, X_test])
-df_cleaned['Churn'] = pd.concat([y_train, y_test])
-df_cleaned.to_csv(f'{output_dir}/retail_customers_CLEANED.csv', index=False)
-print(f"✓ {output_dir}/retail_customers_CLEANED.csv ({df_cleaned.shape[0]} lignes, {df_cleaned.shape[1]} colonnes)")
+
+X_train_bal.to_csv(os.path.join(TT_DIR, 'X_train.csv'),     index=False)
+X_test_scaled.to_csv(os.path.join(TT_DIR, 'X_test.csv'),    index=False)
+pd.Series(y_train_bal, name='Churn').to_csv(
+    os.path.join(TT_DIR, 'y_train.csv'), index=False)
+y_test.to_csv(os.path.join(TT_DIR, 'y_test.csv'),           index=False)
+
+# Données ACP (pour clustering + modèles sur espace réduit)
+X_train_pca.to_csv(os.path.join(TT_DIR, 'X_train_pca.csv'), index=False)
+X_test_pca.to_csv(os.path.join(TT_DIR, 'X_test_pca.csv'),   index=False)
+
+# Dataset nettoyé complet
+df_clean = pd.concat([X_train_bal, X_test_scaled])
+df_clean.to_csv(os.path.join(PROC_DIR, 'retail_customers_CLEANED.csv'), index=False)
+
+print(f"\n[12] Fichiers sauvegardés dans data/train_test/ et data/processed/")
+
+
+print(f"""
+{'='*60}
+RÉCAPITULATIF PREPROCESSING
+{'='*60}
+Données originales    : 4 372 lignes × 52 colonnes
+Après nettoyage       : {df.shape[0]} lignes × {df.shape[1]} colonnes
+Après encodage        : {len(feature_names)} features
+
+Train (avant SMOTE)   : {X_train.shape[0]} échantillons
+Train (après SMOTE)   : {X_train_bal.shape[0]} échantillons
+Test                  : {X_test.shape[0]} échantillons
+
+ACP                   : {n_comp_95} composantes (95% variance)
+
+Artefacts models/     :
+  • scaler.pkl
+  • feature_names.pkl
+  • pca.pkl
+{'='*60}
+""")
