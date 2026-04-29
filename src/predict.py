@@ -1,10 +1,3 @@
-"""
-=====================================================================
-predict.py — Script de Prédiction / Inférence
-Projet : Analyse Comportementale Clientèle Retail
-=====================================================================
-"""
-
 import os
 import argparse
 import warnings
@@ -18,10 +11,6 @@ from utils import (
     add_engineered_features
 )
 
-
-# ============================================================
-# CHEMINS
-# ============================================================
 
 PATHS = {
     'best_classifier'    : 'models/best_classifier.pkl',
@@ -42,10 +31,6 @@ NEW_FEATURES = [
 ]
 
 
-# ============================================================
-# REGISTRE MODÈLES
-# ============================================================
-
 class ModelRegistry:
     def __init__(self):
         self._cache = {}
@@ -62,37 +47,21 @@ class ModelRegistry:
 registry = ModelRegistry()
 
 
-# ============================================================
-# HELPERS
-# ============================================================
-
 def prepare_input(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Applique le feature engineering + scaling.
-    Retourne un DataFrame COMPLET avec toutes les features
-    (originales + 5 engineerées scalées).
-    """
+    
     df = df.copy()
-
-    # Étape 1 : ajouter les 5 features engineerées
     df = add_engineered_features(df)
-
-    # Étape 2 : scaler les nouvelles features
     scaler_new = registry.get('scaler_new_features')
     features_present = [f for f in NEW_FEATURES if f in df.columns]
     if features_present:
         df[features_present] = scaler_new.transform(df[features_present])
         logger.info(f"Nouvelles features scalées : {features_present}")
 
-    return df  # DataFrame COMPLET — ne pas align() avant d'appeler cette fonction
+    return df 
 
 
 def align_to(df: pd.DataFrame, expected: list) -> pd.DataFrame:
-    """
-    Aligne df sur la liste expected.
-    Ajoute les colonnes manquantes avec 0.0.
-    Travaille toujours sur une copie.
-    """
+    
     df = df.copy()
     for col in expected:
         if col not in df.columns:
@@ -115,15 +84,10 @@ def apply_pca(df_full: pd.DataFrame) -> np.ndarray:
     return pca.transform(df_aligned)
 
 
-# ============================================================
-# PRÉDICTION 1 : CHURN
-# ============================================================
-
 def predict_churn(df: pd.DataFrame, use_pca: bool = False,
                   return_proba: bool = True) -> pd.DataFrame:
     logger.info("=== Prédiction CHURN ===")
 
-    # Préparer → DataFrame complet (105 + 5 features)
     df_full = prepare_input(df)
 
     if use_pca:
@@ -133,7 +97,7 @@ def predict_churn(df: pd.DataFrame, use_pca: bool = False,
     else:
         model = registry.get('best_classifier')
         model_name = "Random Forest"
-        # CLF attend 105 features (sans les 5 engineerées)
+        
         clf_features = list(model.feature_names_in_)
         X = align_to(df_full, clf_features).values
 
@@ -152,10 +116,6 @@ def predict_churn(df: pd.DataFrame, use_pca: bool = False,
     return result
 
 
-# ============================================================
-# PRÉDICTION 2 : DÉPENSE
-# ============================================================
-
 def predict_spending(df: pd.DataFrame, use_ridge: bool = False) -> pd.DataFrame:
     logger.info("=== Prédiction MONTANT DÉPENSÉ ===")
 
@@ -168,7 +128,7 @@ def predict_spending(df: pd.DataFrame, use_ridge: bool = False) -> pd.DataFrame:
         model = registry.get('best_regressor')
         model_name = "Random Forest Regressor"
 
-    # REG attend ses features sans MonetaryTotal
+  
     reg_features = list(model.feature_names_in_)
     df_reg = df_full.drop(columns=['MonetaryTotal'], errors='ignore')
     X = align_to(df_reg, reg_features).values
@@ -183,17 +143,11 @@ def predict_spending(df: pd.DataFrame, use_ridge: bool = False) -> pd.DataFrame:
     return result
 
 
-# ============================================================
-# PRÉDICTION 3 : CLUSTER
-# ============================================================
-
 def predict_cluster(df: pd.DataFrame) -> pd.DataFrame:
     logger.info("=== Prédiction CLUSTER ===")
 
-    # DataFrame complet avec les 110 features
+  
     df_full = prepare_input(df)
-
-    # PCA attend 110 features (105 + 5 engineerées)
     X_pca = apply_pca(df_full)
 
     kmeans = registry.get('kmeans')
@@ -208,9 +162,6 @@ def predict_cluster(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-# ============================================================
-# PRÉDICTION COMPLÈTE
-# ============================================================
 
 def predict_full(df: pd.DataFrame) -> pd.DataFrame:
     logger.info("=== PRÉDICTION COMPLÈTE ===")
@@ -228,10 +179,6 @@ def predict_full(df: pd.DataFrame) -> pd.DataFrame:
 
     return result
 
-
-# ============================================================
-# BATCH PREDICT
-# ============================================================
 
 def batch_predict(input_path: str, output_path: str = None,
                   mode: str = 'full') -> pd.DataFrame:
@@ -262,11 +209,6 @@ def batch_predict(input_path: str, output_path: str = None,
 
     return result
 
-
-# ============================================================
-# SINGLE CUSTOMER
-# ============================================================
-
 def predict_single_customer(customer_data: dict, mode: str = 'full') -> dict:
     df = pd.DataFrame([customer_data])
 
@@ -282,9 +224,6 @@ def predict_single_customer(customer_data: dict, mode: str = 'full') -> dict:
     return result
 
 
-# ============================================================
-# CLI
-# ============================================================
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Prédiction comportementale retail')
