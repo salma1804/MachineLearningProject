@@ -1,705 +1,492 @@
-"""
-=====================================================================
-utils.py — Fonctions Utilitaires Partagées
-Projet : Analyse Comportementale Clientèle Retail
-Auteur : GI2 — Atelier Machine Learning
-
-Ce module regroupe toutes les fonctions réutilisables du projet :
-  - Chargement et sauvegarde de modèles
-  - Visualisation (courbes ROC, matrices, importances)
-  - Imputation et nettoyage
-  - Feature engineering
-  - Métriques d'évaluation
-  - Journalisation (logging)
-=====================================================================
-"""
-
-import os
-import joblib
-import logging
-import warnings
-import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use('Agg')
+import numpy as np
 import matplotlib.pyplot as plt
-
-from sklearn.preprocessing import StandardScaler
+import seaborn as sns
 from sklearn.metrics import (
-    classification_report, confusion_matrix, ConfusionMatrixDisplay,
-    roc_auc_score, roc_curve, mean_squared_error, mean_absolute_error, r2_score
+    classification_report, confusion_matrix,
+    roc_auc_score, roc_curve,
+    accuracy_score, precision_score, recall_score, f1_score,
+    mean_squared_error, mean_absolute_error, r2_score
 )
-from sklearn.model_selection import cross_val_score, StratifiedKFold
-
+from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+import joblib
+import os
+import warnings
 warnings.filterwarnings('ignore')
 
 
-# ============================================================
-# CONFIGURATION DU LOGGING
-# ============================================================
 
-def setup_logger(name: str = "ml_project", log_file: str = None) -> logging.Logger:
+def load_data(data_path):
+    """Charge les données depuis un fichier CSV."""
+    return pd.read_csv(data_path)
+
+
+def save_model(model, model_path):
+    """Sauvegarde un modèle entraîné avec joblib."""
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    joblib.dump(model, model_path)
+    print(f"Modèle sauvegardé : {model_path}")
+
+
+def load_model(model_path):
+    """Charge un modèle sauvegardé avec joblib."""
+    return joblib.load(model_path)
+
+
+
+def explore_dataframe(df, name="Dataset"):
     """
-    Initialise et retourne un logger configuré.
-
-    Args:
-        name     : Nom du logger (par défaut 'ml_project')
-        log_file : Chemin vers un fichier log (facultatif)
-
-    Returns:
-        logging.Logger configuré
+    Affiche un résumé complet du DataFrame :
+    shape, types, valeurs manquantes, statistiques descriptives.
     """
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-
-    formatter = logging.Formatter(
-        '[%(asctime)s] %(levelname)s — %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-
-    # Handler console
-    if not logger.handlers:
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
-
-        # Handler fichier (optionnel)
-        if log_file:
-            os.makedirs(os.path.dirname(log_file), exist_ok=True)
-            file_handler = logging.FileHandler(log_file)
-            file_handler.setFormatter(formatter)
-            logger.addHandler(file_handler)
-
-    return logger
-
-
-logger = setup_logger()
-
-
-# ============================================================
-# GESTION DES FICHIERS ET MODÈLES
-# ============================================================
-
-def ensure_dirs(*dirs: str) -> None:
-    """
-    Crée les dossiers s'ils n'existent pas encore.
-
-    Args:
-        *dirs : Chemins des dossiers à créer
-    """
-    for d in dirs:
-        os.makedirs(d, exist_ok=True)
-        logger.info(f"Dossier vérifié/créé : {d}")
-
-
-def save_model(model, path: str) -> None:
-    """
-    Sauvegarde un modèle scikit-learn avec joblib.
-
-    Args:
-        model : Modèle entraîné à sauvegarder
-        path  : Chemin de destination (.pkl)
-    """
-    ensure_dirs(os.path.dirname(path))
-    joblib.dump(model, path)
-    logger.info(f"Modèle sauvegardé : {path}")
-
-
-def load_model(path: str):
-    """
-    Charge un modèle depuis un fichier .pkl.
-
-    Args:
-        path : Chemin du modèle sauvegardé
-
-    Returns:
-        Modèle chargé
-
-    Raises:
-        FileNotFoundError si le fichier est absent
-    """
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Modèle introuvable : {path}")
-    model = joblib.load(path)
-    logger.info(f"Modèle chargé : {path}")
-    return model
-
-
-def load_train_test(base_dir: str = 'data/train_test'):
-    """
-    Charge X_train, X_test, y_train, y_test depuis le dossier train_test.
-
-    Args:
-        base_dir : Chemin du dossier contenant les CSV
-
-    Returns:
-        Tuple (X_train, X_test, y_train, y_test)
-    """
-    X_train = pd.read_csv(f'{base_dir}/X_train.csv')
-    X_test  = pd.read_csv(f'{base_dir}/X_test.csv')
-    y_train = pd.read_csv(f'{base_dir}/y_train.csv').squeeze()
-    y_test  = pd.read_csv(f'{base_dir}/y_test.csv').squeeze()
-
-    logger.info(f"Train chargé : X={X_train.shape}, y={y_train.shape}")
-    logger.info(f"Test  chargé : X={X_test.shape},  y={y_test.shape}")
-    return X_train, X_test, y_train, y_test
-
-
-def load_pca_data(base_dir: str = 'data/train_test'):
-    """
-    Charge les données transformées par PCA.
-
-    Returns:
-        Tuple (X_train_pca, X_test_pca)
-    """
-    X_train_pca = pd.read_csv(f'{base_dir}/X_train_pca.csv')
-    X_test_pca  = pd.read_csv(f'{base_dir}/X_test_pca.csv')
-    logger.info(f"PCA chargé : train={X_train_pca.shape}, test={X_test_pca.shape}")
-    return X_train_pca, X_test_pca
-
-
-# ============================================================
-# NETTOYAGE ET IMPUTATION
-# ============================================================
-
-def cap_outliers_iqr(series: pd.Series) -> pd.Series:
-    """
-    Limite les valeurs aberrantes aux bornes IQR (méthode de Tukey).
-    Valeurs < Q1 - 1.5*IQR  →  remplacées par la borne inférieure
-    Valeurs > Q3 + 1.5*IQR  →  remplacées par la borne supérieure
-
-    Args:
-        series : Colonne numérique pandas
-
-    Returns:
-        Série avec outliers plafonnés
-    """
-    Q1 = series.quantile(0.25)
-    Q3 = series.quantile(0.75)
-    IQR = Q3 - Q1
-    lower = Q1 - 1.5 * IQR
-    upper = Q3 + 1.5 * IQR
-    return series.clip(lower, upper)
-
-
-def impute_with_median(df: pd.DataFrame, col: str) -> pd.DataFrame:
-    """
-    Impute les NaN d'une colonne numérique par la médiane.
-
-    Args:
-        df  : DataFrame source
-        col : Nom de la colonne à imputer
-
-    Returns:
-        DataFrame modifié (in-place)
-    """
-    median_val = df[col].median()
-    df[col] = df[col].fillna(median_val)
-    logger.info(f"Imputation médiane '{col}' : {median_val:.4f}")
-    return df
-
-
-def impute_with_mode(df: pd.DataFrame, col: str) -> pd.DataFrame:
-    """
-    Impute les NaN d'une colonne catégorielle par le mode.
-
-    Args:
-        df  : DataFrame source
-        col : Nom de la colonne à imputer
-
-    Returns:
-        DataFrame modifié (in-place)
-    """
-    mode_val = df[col].mode()[0]
-    df[col] = df[col].fillna(mode_val)
-    logger.info(f"Imputation mode '{col}' : {mode_val}")
-    return df
-
-
-def replace_and_impute(df: pd.DataFrame, col: str,
-                        invalid_values: list, method: str = 'median') -> pd.DataFrame:
-    """
-    Remplace des valeurs invalides par NaN puis impute.
-
-    Args:
-        df             : DataFrame source
-        col            : Colonne à traiter
-        invalid_values : Liste des valeurs à considérer comme NaN (ex: [-1, 999])
-        method         : 'median' ou 'mode'
-
-    Returns:
-        DataFrame modifié
-    """
-    df[col] = df[col].replace(invalid_values, np.nan)
-    if method == 'median':
-        return impute_with_median(df, col)
-    elif method == 'mode':
-        return impute_with_mode(df, col)
+    print(f"\n{'='*60}")
+    print(f"EXPLORATION : {name}")
+    print(f"{'='*60}")
+    print(f"Shape         : {df.shape}")
+    print(f"Doublons      : {df.duplicated().sum()}")
+    missing = df.isnull().sum()
+    missing = missing[missing > 0]
+    if not missing.empty:
+        print(f"\nValeurs manquantes :")
+        for col, n in missing.items():
+            print(f"  {col:35s} {n:5d}  ({n/len(df)*100:.1f}%)")
     else:
-        raise ValueError(f"Méthode inconnue : {method}. Utilisez 'median' ou 'mode'.")
+        print("\nAucune valeur manquante.")
+    print(f"\nTypes :\n{df.dtypes.value_counts().to_string()}")
+    print(f"\nStatistiques numériques :")
+    print(df.describe().round(2).to_string())
 
 
-def remove_constant_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Supprime les colonnes avec une seule valeur unique (variance nulle).
-
-    Args:
-        df : DataFrame source
-
-    Returns:
-        DataFrame sans les colonnes constantes
-    """
-    constant_cols = [col for col in df.columns if df[col].nunique() <= 1]
-    if constant_cols:
-        df = df.drop(columns=constant_cols)
-        logger.info(f"Colonnes constantes supprimées : {constant_cols}")
-    return df
-
-
-# ============================================================
-# FEATURE ENGINEERING
-# ============================================================
-
-def add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Crée de nouvelles features comportementales à partir des features existantes.
-
-    Nouvelles features créées :
-      - MonetaryPerDay   : Dépense journalière moyenne (MonetaryTotal / Recency+1)
-      - AvgBasketValue   : Panier moyen par commande   (MonetaryTotal / Frequency+1)
-      - TenureRatio      : Ratio ancienneté / récence  (Recency / CustomerTenureDays+1)
-      - CancelRate       : Taux d'annulation           (CancelledTransactions / Frequency+1)
-      - EngagementScore  : Score d'engagement global   (Frequency * Satisfaction / Tickets+1)
-
-    Args:
-        df : DataFrame (X_train ou X_test)
-
-    Returns:
-        DataFrame enrichi avec les nouvelles features
-    """
-    if 'MonetaryTotal' in df.columns and 'Recency' in df.columns:
-        df['MonetaryPerDay'] = df['MonetaryTotal'] / (df['Recency'] + 1)
-
-    if 'MonetaryTotal' in df.columns and 'Frequency' in df.columns:
-        df['AvgBasketValue'] = df['MonetaryTotal'] / (df['Frequency'] + 1)
-
-    if 'Recency' in df.columns and 'CustomerTenureDays' in df.columns:
-        df['TenureRatio'] = df['Recency'] / (df['CustomerTenureDays'] + 1)
-
-    if 'CancelledTransactions' in df.columns and 'Frequency' in df.columns:
-        df['CancelRate'] = df['CancelledTransactions'] / (df['Frequency'] + 1)
-
-    if all(c in df.columns for c in ['Frequency', 'SatisfactionScore', 'SupportTicketsCount']):
-        df['EngagementScore'] = (
-            df['Frequency'] * df['SatisfactionScore']
-        ) / (df['SupportTicketsCount'] + 1)
-
-    return df
-
-
-def scale_new_features(X_train: pd.DataFrame, X_test: pd.DataFrame,
-                        new_features: list, save_path: str = None):
-    """
-    Applique StandardScaler sur les nouvelles features engineerées.
-    Fit uniquement sur X_train pour éviter le data leakage.
-
-    Args:
-        X_train      : Données d'entraînement
-        X_test       : Données de test
-        new_features : Liste des features à scaler
-        save_path    : Chemin pour sauvegarder le scaler (facultatif)
-
-    Returns:
-        Tuple (X_train, X_test, scaler)
-    """
-    # Ne garder que les features effectivement présentes
-    features = [f for f in new_features if f in X_train.columns]
-
-    scaler = StandardScaler()
-    X_train[features] = scaler.fit_transform(X_train[features])
-    X_test[features]  = scaler.transform(X_test[features])
-
-    if save_path:
-        save_model(scaler, save_path)
-
-    logger.info(f"Scaling appliqué sur : {features}")
-    return X_train, X_test, scaler
-
-
-# ============================================================
-# VISUALISATION — CLASSIFICATION
-# ============================================================
-
-def plot_confusion_matrix(y_true, y_pred, model_name: str,
-                           save_path: str = None,
-                           labels: list = None) -> None:
-    """
-    Trace et sauvegarde la matrice de confusion.
-
-    Args:
-        y_true     : Labels réels
-        y_pred     : Labels prédits
-        model_name : Nom du modèle (pour le titre)
-        save_path  : Chemin de sauvegarde du graphique
-        labels     : Liste des noms de classes (ex: ['Fidèle', 'Churn'])
-    """
-    if labels is None:
-        labels = ['Classe 0', 'Classe 1']
-
-    cm   = confusion_matrix(y_true, y_pred)
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
-
-    fig, ax = plt.subplots(figsize=(5, 4))
-    disp.plot(ax=ax, colorbar=False, cmap='Blues')
-    ax.set_title(f'Matrice de Confusion — {model_name}')
-    plt.tight_layout()
-
-    if save_path:
-        ensure_dirs(os.path.dirname(save_path))
-        plt.savefig(save_path, dpi=120)
-        logger.info(f"Matrice de confusion sauvegardée : {save_path}")
-    plt.close()
-
-
-def plot_roc_curves(models_data: list, y_test,
-                    save_path: str = 'reports/roc_curves.png') -> None:
-    """
-    Trace les courbes ROC pour plusieurs modèles sur un même graphique.
-
-    Args:
-        models_data : Liste de dicts avec clés 'name', 'proba' (array probabilités)
-        y_test      : Labels réels
-        save_path   : Chemin de sauvegarde
-    
-    Exemple d'utilisation :
-        plot_roc_curves([
-            {'name': 'Random Forest', 'proba': rf_proba},
-            {'name': 'Naive Bayes',   'proba': nb_proba},
-        ], y_test)
-    """
-    colors = ['steelblue', 'tomato', 'mediumseagreen', 'darkorange', 'purple']
-
-    plt.figure(figsize=(8, 6))
-
-    for i, m in enumerate(models_data):
-        fpr, tpr, _ = roc_curve(y_test, m['proba'])
-        auc = roc_auc_score(y_test, m['proba'])
-        plt.plot(fpr, tpr,
-                 color=colors[i % len(colors)],
-                 label=f"{m['name']} (AUC = {auc:.3f})")
-
-    plt.plot([0, 1], [0, 1], 'k--', label='Aléatoire (AUC = 0.5)')
-    plt.xlabel('Taux Faux Positifs (FPR)')
-    plt.ylabel('Taux Vrais Positifs (TPR)')
-    plt.title('Courbes ROC — Comparaison des modèles')
-    plt.legend(loc='lower right')
-    plt.tight_layout()
-
-    ensure_dirs(os.path.dirname(save_path))
-    plt.savefig(save_path, dpi=120)
-    plt.close()
-    logger.info(f"Courbes ROC sauvegardées : {save_path}")
-
-
-def plot_feature_importance(model, feature_names: list, top_n: int = 20,
-                             title: str = 'Feature Importance',
-                             save_path: str = None) -> None:
-    """
-    Trace un graphique en barres horizontales pour l'importance des features.
-    Compatible avec RandomForest, GradientBoosting, XGBoost, etc.
-
-    Args:
-        model         : Modèle entraîné avec attribut feature_importances_
-        feature_names : Noms des features
-        top_n         : Nombre de features à afficher
-        title         : Titre du graphique
-        save_path     : Chemin de sauvegarde
-    """
-    if not hasattr(model, 'feature_importances_'):
-        logger.warning("Ce modèle n'a pas d'attribut feature_importances_.")
+def plot_missing_values(df, save_path=None):
+    """Heatmap des valeurs manquantes."""
+    missing_pct = (df.isnull().sum() / len(df) * 100).sort_values(ascending=False)
+    missing_pct = missing_pct[missing_pct > 0]
+    if missing_pct.empty:
+        print("Aucune valeur manquante.")
         return
-
-    importances = pd.Series(model.feature_importances_, index=feature_names)
-    top = importances.nlargest(top_n).sort_values()
-
-    plt.figure(figsize=(10, 7))
-    top.plot(kind='barh', color='steelblue')
-    plt.title(title)
-    plt.xlabel('Importance (Gini)')
+    plt.figure(figsize=(10, max(4, len(missing_pct) * 0.4)))
+    sns.barplot(x=missing_pct.values, y=missing_pct.index, palette='Reds_r')
+    plt.title('Taux de valeurs manquantes par feature')
+    plt.xlabel('% manquant')
     plt.tight_layout()
-
     if save_path:
-        ensure_dirs(os.path.dirname(save_path))
-        plt.savefig(save_path, dpi=120)
-        logger.info(f"Importance features sauvegardée : {save_path}")
-    plt.close()
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Graphique sauvegardé : {save_path}")
+    plt.show()
 
 
-# ============================================================
-# VISUALISATION — RÉGRESSION
-# ============================================================
-
-def plot_regression_results(y_true, y_pred, model_name: str,
-                             target_name: str = 'Target',
-                             save_path: str = None) -> None:
+def plot_correlation_heatmap(df, save_path=None, threshold=0.8):
     """
-    Trace le graphique Valeurs réelles vs Valeurs prédites.
-
-    Args:
-        y_true      : Valeurs réelles
-        y_pred      : Valeurs prédites
-        model_name  : Nom du modèle
-        target_name : Nom de la variable cible (pour les axes)
-        save_path   : Chemin de sauvegarde
+    Heatmap de corrélation sur les features numériques.
+    Affiche aussi les paires fortement corrélées (> threshold).
     """
-    r2   = r2_score(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    numeric_df = df.select_dtypes(include=[np.number])
+    corr = numeric_df.corr()
 
-    plt.figure(figsize=(7, 5))
-    plt.scatter(y_true, y_pred, alpha=0.3, s=10, color='steelblue')
-    mn = min(float(y_true.min()), float(y_pred.min()))
-    mx = max(float(y_true.max()), float(y_pred.max()))
-    plt.plot([mn, mx], [mn, mx], 'r--', label='Prédiction parfaite')
-    plt.xlabel(f'Valeurs réelles ({target_name})')
-    plt.ylabel('Valeurs prédites')
-    plt.title(f'{model_name} — Réel vs Prédit\nR²={r2:.3f}  RMSE={rmse:.2f}')
+    # Paires fortement corrélées
+    high_corr = []
+    for i in range(len(corr.columns)):
+        for j in range(i + 1, len(corr.columns)):
+            if abs(corr.iloc[i, j]) >= threshold:
+                high_corr.append((corr.columns[i], corr.columns[j], corr.iloc[i, j]))
+    if high_corr:
+        print(f"\nPaires corrélées (|r| >= {threshold}) :")
+        for a, b, r in sorted(high_corr, key=lambda x: abs(x[2]), reverse=True):
+            print(f"  {a:35s} <-> {b:35s}  r={r:.3f}")
+
+    mask = np.triu(np.ones_like(corr, dtype=bool))
+    plt.figure(figsize=(14, 12))
+    sns.heatmap(corr, mask=mask, annot=False, cmap='coolwarm',
+                center=0, linewidths=0.3, vmin=-1, vmax=1)
+    plt.title('Matrice de corrélation')
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Heatmap sauvegardée : {save_path}")
+    plt.show()
+    return corr
+
+
+def plot_target_distribution(y, target_name='Churn', save_path=None):
+    """Distribution de la variable cible."""
+    counts = pd.Series(y).value_counts()
+    plt.figure(figsize=(6, 4))
+    sns.barplot(x=counts.index.astype(str), y=counts.values, palette='Blues_d')
+    for i, v in enumerate(counts.values):
+        plt.text(i, v + 5, f"{v}\n({v/len(y)*100:.1f}%)", ha='center', fontsize=10)
+    plt.title(f'Distribution de {target_name}')
+    plt.xlabel(target_name)
+    plt.ylabel('Nombre de clients')
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.show()
+
+
+
+def run_pca(X, n_components=None, variance_threshold=0.95, save_dir='reports'):
+    
+    os.makedirs(save_dir, exist_ok=True)
+
+   
+    pca_full = PCA(random_state=42)
+    pca_full.fit(X)
+    cumvar = np.cumsum(pca_full.explained_variance_ratio_)
+    if n_components is None:
+        n_components = int(np.argmax(cumvar >= variance_threshold) + 1)
+    print(f"\nACP : {n_components} composantes retenues "
+          f"({cumvar[n_components-1]*100:.1f}% de variance expliquée)")
+    plt.figure(figsize=(10, 4))
+    plt.subplot(1, 2, 1)
+    plt.bar(range(1, min(21, len(pca_full.explained_variance_ratio_)+1)),
+            pca_full.explained_variance_ratio_[:20] * 100, color='steelblue')
+    plt.xlabel('Composante')
+    plt.ylabel('Variance expliquée (%)')
+    plt.title('Variance par composante (top 20)')
+
+    plt.subplot(1, 2, 2)
+    plt.plot(range(1, len(cumvar)+1), cumvar * 100, marker='o', markersize=3,
+             color='steelblue')
+    plt.axhline(y=variance_threshold*100, color='red', linestyle='--',
+                label=f'{variance_threshold*100:.0f}%')
+    plt.axvline(x=n_components, color='orange', linestyle='--',
+                label=f'n={n_components}')
+    plt.xlabel('Nombre de composantes')
+    plt.ylabel('Variance cumulée (%)')
+    plt.title('Variance cumulée')
     plt.legend()
     plt.tight_layout()
+    plt.savefig(f'{save_dir}/pca_variance.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    print(f"  Graphique ACP sauvegardé : {save_dir}/pca_variance.png")
+    pca = PCA(n_components=n_components, random_state=42)
+    X_pca = pca.fit_transform(X)
+    plot_pca_2d(X_pca, save_dir=save_dir)
 
+    return X_pca, pca
+
+
+def plot_pca_2d(X_pca, labels=None, label_name='Cluster', save_dir='reports'):
+    """Scatter plot des 2 premières composantes principales."""
+    plt.figure(figsize=(8, 6))
+    if labels is not None:
+        scatter = plt.scatter(X_pca[:, 0], X_pca[:, 1],
+                              c=labels, cmap='tab10', alpha=0.6, s=10)
+        plt.colorbar(scatter, label=label_name)
+    else:
+        plt.scatter(X_pca[:, 0], X_pca[:, 1], alpha=0.4, s=10, color='steelblue')
+    plt.xlabel('PC1')
+    plt.ylabel('PC2')
+    plt.title('Projection ACP — 2 premières composantes')
+    plt.tight_layout()
+    plt.savefig(f'{save_dir}/pca_2d.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    print(f"  Graphique ACP 2D sauvegardé : {save_dir}/pca_2d.png")
+
+
+def plot_pca_loadings(pca, feature_names, top_n=10, save_dir='reports'):
+    """
+    Affiche les loadings (contributions) des features sur PC1 et PC2.
+    """
+    loadings = pd.DataFrame(
+        pca.components_[:2].T,
+        index=feature_names,
+        columns=['PC1', 'PC2']
+    )
+    loadings['magnitude'] = np.sqrt(loadings['PC1']**2 + loadings['PC2']**2)
+    top = loadings.nlargest(top_n, 'magnitude')
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    for ax, comp in zip(axes, ['PC1', 'PC2']):
+        data = top[comp].sort_values()
+        colors = ['#e74c3c' if v < 0 else '#2ecc71' for v in data.values]
+        ax.barh(data.index, data.values, color=colors)
+        ax.axvline(0, color='black', linewidth=0.8)
+        ax.set_title(f'Loadings — {comp}')
+        ax.set_xlabel('Contribution')
+    plt.tight_layout()
+    plt.savefig(f'{save_dir}/pca_loadings.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    print(f"  Loadings ACP sauvegardés : {save_dir}/pca_loadings.png")
+    return loadings
+
+
+
+
+def find_optimal_k(X_pca, k_range=range(2, 11), save_dir='reports'):
+   
+    os.makedirs(save_dir, exist_ok=True)
+    inertias = {}
+    for k in k_range:
+        km = KMeans(n_clusters=k, random_state=42, n_init=10)
+        km.fit(X_pca)
+        inertias[k] = km.inertia_
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(list(inertias.keys()), list(inertias.values()),
+             marker='o', color='steelblue', linewidth=2)
+    plt.xlabel('Nombre de clusters (k)')
+    plt.ylabel('Inertie')
+    plt.title('Méthode du coude — choix de k')
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.tight_layout()
+    plt.savefig(f'{save_dir}/kmeans_elbow.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    print(f"  Graphique coude sauvegardé : {save_dir}/kmeans_elbow.png")
+    return inertias
+
+
+def run_kmeans(X_pca, n_clusters=4, save_dir='reports'):
+    """
+    Entraîne K-Means et retourne les labels + l'objet KMeans.
+
+    Returns
+    -------
+    labels : np.ndarray, kmeans : KMeans fitted
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    labels = kmeans.fit_predict(X_pca)
+
+    print(f"\nClustering K-Means (k={n_clusters})")
+    unique, counts = np.unique(labels, return_counts=True)
+    for c, n in zip(unique, counts):
+        print(f"  Cluster {c} : {n} clients ({n/len(labels)*100:.1f}%)")
+
+   
+    plot_pca_2d(X_pca, labels=labels, label_name='Cluster', save_dir=save_dir)
+
+    return labels, kmeans
+
+
+def describe_clusters(df_original, labels, rfm_cols=None, save_dir='reports'):
+    """
+    Profil moyen de chaque cluster sur les features RFM + comportementales.
+
+    Parameters
+    ----------
+    df_original : DataFrame original (non normalisé, features numériques)
+    labels      : array de labels de cluster
+    rfm_cols    : liste de colonnes à analyser (défaut : Recency, Frequency, MonetaryTotal)
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    if rfm_cols is None:
+        rfm_cols = [c for c in ['Recency', 'Frequency', 'MonetaryTotal',
+                                 'CustomerTenure', 'UniqueProducts', 'ReturnRatio']
+                    if c in df_original.columns]
+
+    df_c = df_original[rfm_cols].copy()
+    df_c['Cluster'] = labels
+    profile = df_c.groupby('Cluster')[rfm_cols].mean().round(2)
+
+    print("\nProfil moyen par cluster :")
+    print(profile.to_string())
+
+    # Heatmap profils
+    profile_norm = (profile - profile.min()) / (profile.max() - profile.min() + 1e-9)
+    plt.figure(figsize=(max(8, len(rfm_cols)), max(4, len(profile))))
+    sns.heatmap(profile_norm, annot=profile.values, fmt='.1f',
+                cmap='YlOrRd', linewidths=0.3)
+    plt.title('Profil normalisé des clusters')
+    plt.tight_layout()
+    plt.savefig(f'{save_dir}/cluster_profiles.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    print(f"  Profils clusters sauvegardés : {save_dir}/cluster_profiles.png")
+    return profile
+
+
+
+def plot_confusion_matrix(y_true, y_pred, model_name='Modèle', save_path=None):
+    """Matrice de confusion annotée."""
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(7, 5))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=['Fidèle', 'Churn'],
+                yticklabels=['Fidèle', 'Churn'])
+    plt.title(f'Matrice de confusion — {model_name}')
+    plt.ylabel('Vraie classe')
+    plt.xlabel('Prédiction')
+    plt.tight_layout()
     if save_path:
-        ensure_dirs(os.path.dirname(save_path))
-        plt.savefig(save_path, dpi=120)
-        logger.info(f"Graphique régression sauvegardé : {save_path}")
-    plt.close()
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"  Matrice sauvegardée : {save_path}")
+    plt.show()
 
 
-# ============================================================
-# MÉTRIQUES D'ÉVALUATION
-# ============================================================
+def plot_roc_curve(y_true, y_proba, model_name='Modèle', save_path=None):
+    """Courbe ROC avec AUC."""
+    fpr, tpr, _ = roc_curve(y_true, y_proba)
+    auc = roc_auc_score(y_true, y_proba)
+    plt.figure(figsize=(7, 5))
+    plt.plot(fpr, tpr, label=f'AUC = {auc:.3f}', linewidth=2, color='steelblue')
+    plt.plot([0, 1], [0, 1], 'k--', label='Aléatoire')
+    plt.xlabel('Taux de faux positifs (FPR)')
+    plt.ylabel('Taux de vrais positifs (TPR)')
+    plt.title(f'Courbe ROC — {model_name}')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"  Courbe ROC sauvegardée : {save_path}")
+    plt.show()
+    return auc
 
-def evaluate_classifier(name: str, model, X_train, X_test,
-                         y_train, y_test,
-                         save_dir: str = 'reports') -> dict:
+
+def evaluate_classifier(model, X_test, y_test, model_name='Modèle'):
     """
     Évalue complètement un modèle de classification.
-    Calcule : Accuracy, Precision, Recall, F1, ROC-AUC, CV-AUC.
-    Génère et sauvegarde la matrice de confusion.
-
-    Args:
-        name     : Nom du modèle
-        model    : Modèle entraîné
-        X_train  : Features d'entraînement
-        X_test   : Features de test
-        y_train  : Labels d'entraînement
-        y_test   : Labels de test
-        save_dir : Répertoire pour les graphiques
-
-    Returns:
-        dict avec toutes les métriques
+    Retourne un dict de métriques.
     """
-    y_pred      = model.predict(X_test)
-    y_pred_prob = model.predict_proba(X_test)[:, 1]
+    y_pred = model.predict(X_test)
+    y_proba = model.predict_proba(X_test)[:, 1]
 
-    report  = classification_report(y_test, y_pred, output_dict=True)
-    roc_auc = roc_auc_score(y_test, y_pred_prob)
-
-    # Cross-validation ROC-AUC sur train
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    cv_scores = cross_val_score(model, X_train, y_train, cv=cv, scoring='roc_auc')
-
-    logger.info(f"\n{'='*50}\n  {name}\n{'='*50}")
-    logger.info(f"ROC-AUC    : {roc_auc:.4f}")
-    logger.info(f"CV ROC-AUC : {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
-    logger.info(f"Precision (classe 1) : {report['1']['precision']:.4f}")
-    logger.info(f"Recall    (classe 1) : {report['1']['recall']:.4f}")
-    logger.info(f"F1-score  (classe 1) : {report['1']['f1-score']:.4f}")
-
-    # Matrice de confusion
-    cm_path = os.path.join(save_dir, f'confusion_{name.replace(" ", "_")}.png')
-    plot_confusion_matrix(y_test, y_pred, name,
-                          save_path=cm_path,
-                          labels=['Fidèle', 'Churn'])
-
-    return {
-        'name'        : name,
-        'roc_auc'     : roc_auc,
-        'cv_mean'     : cv_scores.mean(),
-        'cv_std'      : cv_scores.std(),
-        'precision_1' : report['1']['precision'],
-        'recall_1'    : report['1']['recall'],
-        'f1_1'        : report['1']['f1-score'],
-        'accuracy'    : report['accuracy']
+    metrics = {
+        'accuracy':  accuracy_score(y_test, y_pred),
+        'precision': precision_score(y_test, y_pred, zero_division=0),
+        'recall':    recall_score(y_test, y_pred, zero_division=0),
+        'f1':        f1_score(y_test, y_pred, zero_division=0),
+        'auc_roc':   roc_auc_score(y_test, y_proba)
     }
 
+    print(f"\n{'='*55}")
+    print(f"ÉVALUATION CLASSIFICATION : {model_name}")
+    print(f"{'='*55}")
+    for k, v in metrics.items():
+        print(f"  {k:12s}: {v:.4f}")
+    print(f"\n{classification_report(y_test, y_pred, target_names=['Fidèle','Churn'])}")
 
-def evaluate_regressor(name: str, model, X_train, X_test,
-                        y_train, y_test,
-                        target_name: str = 'Target',
-                        save_dir: str = 'reports') -> dict:
+    if metrics['f1'] > 0.99:
+        print("  ⚠  Score parfait → vérifier data leakage !")
+
+    return metrics, y_pred, y_proba
+
+
+
+def evaluate_regressor(model, X_test, y_test, model_name='Modèle'):
     """
-    Évalue complètement un modèle de régression.
-    Calcule : R², RMSE, MAE, CV-R².
-    Génère et sauvegarde le graphique réel vs prédit.
-
-    Args:
-        name        : Nom du modèle
-        model       : Modèle entraîné
-        X_train     : Features d'entraînement
-        X_test      : Features de test
-        y_train     : Cible d'entraînement
-        y_test      : Cible de test
-        target_name : Nom de la variable cible
-        save_dir    : Répertoire pour les graphiques
-
-    Returns:
-        dict avec toutes les métriques
+    Évalue un modèle de régression.
+    Retourne un dict de métriques.
     """
     y_pred = model.predict(X_test)
 
-    r2   = r2_score(y_test, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-    mae  = mean_absolute_error(y_test, y_pred)
-    cv_r2 = cross_val_score(model, X_train, y_train, cv=5, scoring='r2')
-
-    logger.info(f"\n{'='*50}\n  {name}\n{'='*50}")
-    logger.info(f"R²   (test)  : {r2:.4f}")
-    logger.info(f"RMSE (test)  : {rmse:.4f}")
-    logger.info(f"MAE  (test)  : {mae:.4f}")
-    logger.info(f"CV R²        : {cv_r2.mean():.4f} ± {cv_r2.std():.4f}")
-
-    # Graphique réel vs prédit
-    plot_path = os.path.join(save_dir, f'regression_{name.replace(" ", "_")}.png')
-    plot_regression_results(y_test, y_pred, name,
-                            target_name=target_name,
-                            save_path=plot_path)
-
-    return {
-        'name'   : name,
-        'r2'     : r2,
-        'rmse'   : rmse,
-        'mae'    : mae,
-        'cv_r2'  : cv_r2.mean(),
-        'cv_std' : cv_r2.std()
+    metrics = {
+        'MAE':  mean_absolute_error(y_test, y_pred),
+        'MSE':  mean_squared_error(y_test, y_pred),
+        'RMSE': np.sqrt(mean_squared_error(y_test, y_pred)),
+        'R2':   r2_score(y_test, y_pred)
     }
 
+    print(f"\n{'='*55}")
+    print(f"ÉVALUATION RÉGRESSION : {model_name}")
+    print(f"{'='*55}")
+    for k, v in metrics.items():
+        print(f"  {k:6s}: {v:.4f}")
 
-def print_summary_table(results: list, title: str = "Résumé comparatif") -> pd.DataFrame:
+    # Résidus
+    plt.figure(figsize=(10, 4))
+    plt.subplot(1, 2, 1)
+    plt.scatter(y_test, y_pred, alpha=0.4, s=8, color='steelblue')
+    lims = [min(y_test.min(), y_pred.min()), max(y_test.max(), y_pred.max())]
+    plt.plot(lims, lims, 'r--')
+    plt.xlabel('Valeur réelle')
+    plt.ylabel('Valeur prédite')
+    plt.title(f'Réel vs Prédit — {model_name}')
+
+    plt.subplot(1, 2, 2)
+    residuals = y_test - y_pred
+    plt.hist(residuals, bins=40, color='steelblue', edgecolor='white')
+    plt.axvline(0, color='red', linestyle='--')
+    plt.xlabel('Résidu')
+    plt.ylabel('Fréquence')
+    plt.title('Distribution des résidus')
+    plt.tight_layout()
+    plt.show()
+
+    return metrics, y_pred
+
+
+def plot_feature_importance(model, feature_names, top_n=15,
+                             model_name='Modèle', save_path=None):
     """
-    Affiche un tableau récapitulatif des métriques de plusieurs modèles.
-
-    Args:
-        results : Liste de dicts retournés par evaluate_classifier/evaluate_regressor
-        title   : Titre du tableau
-
-    Returns:
-        DataFrame du résumé
+    Barplot des features les plus importantes.
+    Compatible avec tree-based models (feature_importances_)
+    et modèles linéaires (coef_).
     """
-    df_summary = pd.DataFrame(results).set_index('name')
-    print(f"\n{'='*60}")
-    print(f"  {title}")
-    print(f"{'='*60}")
-    print(df_summary.round(4).to_string())
-    return df_summary
-
-
-# ============================================================
-# VÉRIFICATIONS ET DIAGNOSTICS
-# ============================================================
-
-def check_data_leakage(X_train: pd.DataFrame, X_test: pd.DataFrame) -> bool:
-    """
-    Vérifie si des lignes de X_test sont présentes dans X_train (data leakage).
-
-    Args:
-        X_train : DataFrame d'entraînement
-        X_test  : DataFrame de test
-
-    Returns:
-        True si aucune fuite détectée, False sinon
-    """
-    overlap = pd.merge(X_train, X_test, how='inner')
-    if len(overlap) > 0:
-        logger.warning(f"⚠️  DATA LEAKAGE DÉTECTÉ : {len(overlap)} lignes communes !")
-        return False
-    logger.info("✓ Aucune fuite de données (data leakage) détectée.")
-    return True
-
-
-def check_class_balance(y: pd.Series, label: str = "Target") -> float:
-    """
-    Affiche la distribution des classes et retourne le taux de la classe minoritaire.
-
-    Args:
-        y     : Série cible binaire
-        label : Nom de la variable
-
-    Returns:
-        Taux de la classe positive (classe 1)
-    """
-    counts = y.value_counts(normalize=True).round(4)
-    logger.info(f"\nDistribution de {label} :")
-    for cls, pct in counts.items():
-        logger.info(f"  Classe {cls} : {pct:.2%}")
-
-    minority_rate = float(counts.get(1, counts.iloc[-1]))
-    if minority_rate < 0.3:
-        logger.warning(f"⚠️  Classes déséquilibrées (minorité = {minority_rate:.2%}) — utilisez class_weight='balanced'")
+    if hasattr(model, 'feature_importances_'):
+        importances = model.feature_importances_
+    elif hasattr(model, 'coef_'):
+        importances = np.abs(model.coef_[0]) if model.coef_.ndim > 1 else np.abs(model.coef_)
     else:
-        logger.info("✓ Classes équilibrées.")
-    return minority_rate
+        print("Modèle non compatible.")
+        return None
+
+    imp_df = pd.DataFrame({
+        'feature':    feature_names,
+        'importance': importances
+    }).sort_values('importance', ascending=False).head(top_n)
+
+    plt.figure(figsize=(10, max(5, top_n * 0.4)))
+    sns.barplot(data=imp_df, x='importance', y='feature', palette='Blues_r')
+    plt.title(f'Top {top_n} features importantes — {model_name}')
+    plt.xlabel('Importance')
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"  Feature importance sauvegardée : {save_path}")
+    plt.show()
+    return imp_df
 
 
-def get_high_correlation_pairs(df: pd.DataFrame,
-                                threshold: float = 0.85) -> pd.DataFrame:
+
+def detect_overfitting(model, X_train, y_train, X_test, y_test):
     """
-    Identifie les paires de variables numériques fortement corrélées.
-
-    Args:
-        df        : DataFrame numérique
-        threshold : Seuil de corrélation (défaut 0.85)
-
-    Returns:
-        DataFrame avec les paires [feature_1, feature_2, correlation]
+    Compare les scores train / test pour détecter le surapprentissage.
+    Fonctionne pour classification et régression.
     """
-    corr_matrix = df.select_dtypes(include=[np.number]).corr().abs()
-    pairs = []
-    cols = corr_matrix.columns
+    train_score = model.score(X_train, y_train)
+    test_score  = model.score(X_test, y_test)
+    diff = train_score - test_score
 
-    for i in range(len(cols)):
-        for j in range(i + 1, len(cols)):
-            if corr_matrix.iloc[i, j] > threshold:
-                pairs.append({
-                    'feature_1'   : cols[i],
-                    'feature_2'   : cols[j],
-                    'correlation' : round(corr_matrix.iloc[i, j], 4)
-                })
+    print(f"\n  Score Train : {train_score:.4f}")
+    print(f"  Score Test  : {test_score:.4f}")
+    print(f"  Différence  : {diff:.4f}", end='  ')
 
-    result = pd.DataFrame(pairs).sort_values('correlation', ascending=False)
-    logger.info(f"Paires corrélées (|r| > {threshold}) : {len(result)} trouvées")
-    return result
+    if diff > 0.10:
+        print("⚠  Surapprentissage détecté !")
+    elif diff < 0.02:
+        print("✓  Excellent équilibre")
+    else:
+        print("ℹ  Légère divergence, acceptable")
+
+    return train_score, test_score
 
 
-def get_missing_summary(df: pd.DataFrame) -> pd.DataFrame:
+def compare_models(results_dict, metric='f1', save_path=None):
     """
-    Retourne un tableau récapitulatif des valeurs manquantes.
+    Affiche un barplot comparatif de plusieurs modèles.
 
-    Args:
-        df : DataFrame à analyser
-
-    Returns:
-        DataFrame [colonne, nb_manquants, pct_manquants] pour les colonnes avec NaN
+    Parameters
+    ----------
+    results_dict : {nom_modèle: dict_métriques}
+    metric       : str — métrique à afficher ('f1', 'auc_roc', 'accuracy', 'R2'…)
     """
-    missing = df.isnull().sum()
-    missing = missing[missing > 0]
+    names  = list(results_dict.keys())
+    values = [results_dict[n].get(metric, 0) for n in names]
 
-    if missing.empty:
-        logger.info("✓ Aucune valeur manquante dans le DataFrame.")
-        return pd.DataFrame()
-
-    summary = pd.DataFrame({
-        'nb_manquants'  : missing,
-        'pct_manquants' : (missing / len(df) * 100).round(2)
-    }).sort_values('pct_manquants', ascending=False)
-
-    logger.info(f"Colonnes avec valeurs manquantes :\n{summary.to_string()}")
-    return summary
+    plt.figure(figsize=(max(6, len(names) * 1.5), 5))
+    bars = plt.bar(names, values, color='steelblue', edgecolor='white')
+    for bar, val in zip(bars, values):
+        plt.text(bar.get_x() + bar.get_width()/2,
+                 bar.get_height() + 0.005,
+                 f'{val:.3f}', ha='center', va='bottom', fontsize=10)
+    plt.ylim(0, min(1.05, max(values) * 1.15))
+    plt.ylabel(metric)
+    plt.title(f'Comparaison des modèles — {metric}')
+    plt.xticks(rotation=15)
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"  Comparaison sauvegardée : {save_path}")
+    plt.show()
